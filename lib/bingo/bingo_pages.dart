@@ -337,9 +337,9 @@ class _BingoRoomPageState extends State<BingoRoomPage>
   List<List<bool>> myMarks = [];
   int myRound = -1;
   bool claimed = false;
-  // Las marcas se ven solo ~20 s para que los jugadores sigan atentos.
-  final Map<String, int> markedAt = {};
-  static const int markShowMs = 20000;
+  // Un número que salió y no se tachó en 20 s se pierde (se quita de la cartilla).
+  final Map<int, int> calledAt = {};
+  static const int missMs = 20000;
 
   // Bolas
   int seenBalls = -1;
@@ -368,6 +368,13 @@ class _BingoRoomPageState extends State<BingoRoomPage>
       return b.sublist(0, b.length - 1);
     }
     return b;
+  }
+
+  /// Salió hace más de 20 s (o antes de que entraras) y no está tachado.
+  bool _missed(int n) {
+    if (n == 0 || !shownBalls.contains(n)) return false;
+    final at = calledAt[n];
+    return at == null || nowMs() - at >= missMs;
   }
 
   int get priceCents => (room?['priceCents'] as int?) ?? 50;
@@ -429,18 +436,23 @@ class _BingoRoomPageState extends State<BingoRoomPage>
       Sfx.play('tombola');
       Sfx.play('ball', delayMs: 1500);
       final n = b.last;
+      calledAt[n] = nowMs() + 1550;
+      Timer(const Duration(milliseconds: 1550 + missMs + 150), () {
+        if (mounted) setState(() {});
+      });
       Future<void>.delayed(const Duration(milliseconds: 1550), () {
         if (mounted && voiceOn) BingoVoice.say('${bingoLetter(n)}, $n');
       });
     } else if (b.length < seenBalls) {
       seenBalls = b.length;
+      calledAt.clear();
       _ballAnim.value = 0;
     }
 
     // Nueva partida: las cartillas se renuevan
     if (st == 'lobby') {
       finishedShown = false;
-      markedAt.clear();
+      calledAt.clear();
       claimed = false;
       finalizing = false;
       drawTimer?.cancel();
@@ -581,18 +593,15 @@ class _BingoRoomPageState extends State<BingoRoomPage>
             content: Text('Ese número todavía no ha salido')));
       return;
     }
-    final key = '$ci:$idx';
-    setState(() {
-      myMarks[ci][idx] = !myMarks[ci][idx];
-      if (myMarks[ci][idx]) {
-        markedAt[key] = nowMs();
-        Timer(const Duration(milliseconds: markShowMs + 100), () {
-          if (mounted) setState(() {});
-        });
-      } else {
-        markedAt.remove(key);
-      }
-    });
+    if (!myMarks[ci][idx] && _missed(n)) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+            duration: Duration(milliseconds: 1200),
+            content: Text('Se te pasó ese número: ya no se puede tachar')));
+      return;
+    }
+    setState(() => myMarks[ci][idx] = !myMarks[ci][idx]);
     Sfx.play('tick');
     svc.playersRef(code).doc(svc.uid).update({
       'marks': [for (final m in myMarks) marksToString(m)],
@@ -1106,9 +1115,9 @@ class _BingoRoomPageState extends State<BingoRoomPage>
   Widget _cell(int ci, int idx, double cell, Set<int> drawn) {
     final n = myCards[ci][idx];
     final marked = myMarks[ci][idx];
-    final at = markedAt['$ci:$idx'];
-    final shown = marked && at != null && nowMs() - at < markShowMs;
     final free = n == 0;
+    final missed = !marked && _missed(n);
+    final shown = marked;
     final called = !free && drawn.contains(n);
     return GestureDetector(
       onTap: () => _tapCell(ci, idx),
@@ -1118,11 +1127,13 @@ class _BingoRoomPageState extends State<BingoRoomPage>
         decoration: BoxDecoration(
           color: free
               ? Colors.amber.shade200
-              : (shown ? const Color(0xFFFFF59D) : const Color(0xFFF5F5F5)),
+              : (missed
+                  ? Colors.grey.shade400
+                  : (shown ? const Color(0xFFFFF59D) : const Color(0xFFF5F5F5))),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-              color: called && !marked ? Colors.orange : Colors.black12,
-              width: called && !marked ? 2.5 : 1),
+              color: called && !marked && !missed ? Colors.orange : Colors.black12,
+              width: called && !marked && !missed ? 2.5 : 1),
         ),
         child: Stack(
           alignment: Alignment.center,
@@ -1137,6 +1148,8 @@ class _BingoRoomPageState extends State<BingoRoomPage>
                           fontSize: cell * 0.18, fontWeight: FontWeight.bold)),
                 ],
               )
+            else if (missed)
+              Icon(Icons.block, size: cell * 0.4, color: Colors.black26)
             else
               Text('$n',
                   style: TextStyle(
