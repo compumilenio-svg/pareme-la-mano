@@ -55,7 +55,7 @@ class MenuPage extends StatelessWidget {
               child: ListTile(
                 leading: const Text('✋', style: TextStyle(fontSize: 32)),
                 title: const Text('Páreme la mano'),
-                subtitle: const Text('Multijugador en línea (2 a 8)'),
+                subtitle: const Text('Multijugador en línea (2 a 8) · 10 rondas'),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const HomePage()),
                 ),
@@ -65,7 +65,7 @@ class MenuPage extends StatelessWidget {
               child: ListTile(
                 leading: const Text('🃏', style: TextStyle(fontSize: 32)),
                 title: const Text('Cuarenta'),
-                subtitle: const Text('Contra bots, solo o en parejas'),
+                subtitle: const Text('Contra bots o en línea, solo o en parejas'),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                       builder: (_) => const CuarentaSetupPage()),

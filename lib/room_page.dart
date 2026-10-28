@@ -22,6 +22,11 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
   bool cheatedLocal = false;
   Timer? ticker;
   Timer? debounce;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? playersSub;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> playerDocs = [];
+  final Map<String, bool> myVotes = {};
+  bool votedLocal = false;
+  bool votingStarted = false;
 
   String get code => widget.code;
   bool get isHost => room?['hostId'] == svc.uid;
@@ -31,6 +36,7 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     ticker = Timer.periodic(const Duration(milliseconds: 500), (_) => _tick());
+    playersSub = svc.playersStream(code).listen((q) => playerDocs = q.docs);
   }
 
   @override
@@ -38,6 +44,7 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     ticker?.cancel();
     debounce?.cancel();
+    playersSub?.cancel();
     for (final c in ctrls.values) {
       c.dispose();
     }
@@ -65,7 +72,10 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
       timeoutTriggered = false;
       completeTriggered = false;
       scoringStarted = false;
+      votingStarted = false;
       cheatedLocal = false;
+      myVotes.clear();
+      votedLocal = false;
       for (final c in ctrls.values) {
         c.dispose();
       }
@@ -118,8 +128,17 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
         submittedLocal = true;
         _flush(submitted: true);
       }
-      // Solo el anfitrión calcula los puntajes (las reglas de Firestore así lo exigen).
-      if (isHost && now >= ends + 3000 && !scoringStarted) {
+      // Solo el anfitrión controla el paso a votación y el cálculo de puntajes.
+      if (isHost && now >= ends + 3000 && !votingStarted) {
+        votingStarted = true;
+        svc.startVoting(code);
+      }
+    }
+    if (st == 'voting' && isHost && !scoringStarted) {
+      final ends = r['votingEndsAt'] as int;
+      final allVoted =
+          playerDocs.isNotEmpty && playerDocs.every((d) => d['voted'] == true);
+      if (now >= ends || allVoted) {
         scoringStarted = true;
         svc.scoreRound(code);
       }
@@ -150,6 +169,8 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
               case 'playing':
               case 'counting':
                 return _round();
+              case 'voting':
+                return _voting();
               case 'scoring':
                 return const Center(
                     child: Column(
@@ -294,6 +315,112 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
     );
   }
 
+  // ---------- Votación ----------
+  Widget _voting() {
+    final r = room!;
+    final cats = List<String>.from(r['categories']);
+    final letter = r['letter'] as String;
+    final secs = _secondsLeft(r['votingEndsAt'] as int);
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: svc.playersStream(code),
+      builder: (context, snap) {
+        final others = (snap.data?.docs ?? [])
+            .where((d) => d.id != svc.uid && d['cheated'] != true)
+            .toList();
+        return Column(
+          children: [
+            Container(
+              width: double.infinity,
+              color: Colors.indigo,
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                'Revisa las palabras de los demás. Marca las FALSAS. ($secs s)',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(12),
+                children: [
+                  if (others.isEmpty)
+                    const Text('No hay palabras de otros jugadores para revisar.'),
+                  for (final p in others)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(p['name'],
+                                style: Theme.of(context).textTheme.titleMedium),
+                            for (var ci = 0; ci < cats.length; ci++)
+                              _voteRow(p.id, ci, cats[ci], letter,
+                                  (Map<String, dynamic>.from(
+                                          p['answers'] ?? {}))[cats[ci]]
+                                      as String? ??
+                                      ''),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: FilledButton(
+                onPressed: votedLocal
+                    ? null
+                    : () {
+                        setState(() => votedLocal = true);
+                        svc.saveVotes(code, myVotes, voted: true);
+                      },
+                child: Text(votedLocal ? 'Listo, esperando...' : 'Listo'),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _voteRow(String pid, int ci, String cat, String letter, String word) {
+    if (word.isEmpty) {
+      return ListTile(
+        dense: true,
+        title: Text(cat),
+        subtitle: const Text('(vacío)'),
+      );
+    }
+    final formatOk = isValidWord(word, letter);
+    final key = '$pid|$ci';
+    final invalid = myVotes[key] == true;
+    return ListTile(
+      dense: true,
+      title: Text(cat),
+      subtitle: Text(
+        formatOk ? word : '$word  (no empieza con $letter: no vale)',
+        style: TextStyle(
+          decoration: (invalid || !formatOk) ? TextDecoration.lineThrough : null,
+          color: (invalid || !formatOk) ? Colors.red : null,
+        ),
+      ),
+      trailing: formatOk
+          ? FilterChip(
+              label: const Text('Falsa'),
+              selected: invalid,
+              onSelected: votedLocal
+                  ? null
+                  : (v) {
+                      setState(() => myVotes[key] = v);
+                      svc.saveVotes(code, myVotes);
+                    },
+            )
+          : null,
+    );
+  }
+
   // ---------- Dashboard ----------
   Widget _dashboard({required bool finished}) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -325,7 +452,10 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
                 title: Text(p['name']),
                 subtitle: p['cheated'] == true
                     ? const Text('Salió de la app (0 puntos)')
-                    : null,
+                    : ((p.data()['rejected'] as List?)?.isNotEmpty ?? false)
+                        ? Text(
+                            'Palabras rechazadas: ${(p.data()['rejected'] as List).join(', ')}')
+                        : null,
                 trailing: Text('+${p['roundScore']}',
                     style: t.titleMedium),
               ),

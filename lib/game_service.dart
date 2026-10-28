@@ -13,10 +13,12 @@ const allCategories = [
   'Profesión',
   'Color',
 ];
-const categoriesPerRound = 6;
+const englishCategory = 'Palabra o verbo en inglés';
+const categoriesPerRound = 6; // + la categoría fija en inglés
+const voteSeconds = 30;
 const roundSeconds = 90;
 const countdownSeconds = 10;
-const totalRounds = 5;
+const totalRounds = 10;
 const maxPlayers = 8;
 const pointsUnique = 100;
 const pointsRepeated = 50;
@@ -42,7 +44,7 @@ int nowMs() => DateTime.now().millisecondsSinceEpoch;
 
 class GameService {
   final db = FirebaseFirestore.instance;
-  late final String uid;
+  String uid = '';
   String name = '';
 
   Future<void> signIn() async {
@@ -61,7 +63,7 @@ class GameService {
   Stream<QuerySnapshot<Map<String, dynamic>>> playersStream(String code) =>
       playersRef(code).snapshots();
 
-  String _newCode() {
+  String newCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final r = Random();
     return List.generate(5, (_) => chars[r.nextInt(chars.length)]).join();
@@ -75,6 +77,9 @@ class GameService {
         'finished': false,
         'submitted': false,
         'cheated': false,
+        'votes': <String, bool>{},
+        'voted': false,
+        'rejected': <String>[],
         'joinedAt': nowMs(),
       };
 
@@ -82,7 +87,7 @@ class GameService {
     name = playerName;
     String code;
     do {
-      code = _newCode();
+      code = newCode();
     } while ((await roomRef(code).get()).exists);
     await roomRef(code).set({
       'hostId': uid,
@@ -106,7 +111,9 @@ class GameService {
     name = playerName;
     code = code.trim().toUpperCase();
     final snap = await roomRef(code).get();
-    if (!snap.exists) return 'No existe una sala con ese código.';
+    if (!snap.exists || snap.data()!['game'] == 'cuarenta') {
+      return 'No existe una sala con ese código.';
+    }
     final existing = await playersRef(code).doc(uid).get();
     if (existing.exists) return null; // reingreso
     if (snap.data()!['status'] != 'lobby') {
@@ -136,17 +143,21 @@ class GameService {
         'submitted': false,
         'cheated': false,
         'roundScore': 0,
+        'votes': <String, bool>{},
+        'voted': false,
+        'rejected': <String>[],
       });
     }
     batch.update(roomRef(code), {
       'status': 'playing',
       'round': round,
       'letter': letter,
-      'categories': cats.take(categoriesPerRound).toList(),
+      'categories': [...cats.take(categoriesPerRound), englishCategory],
       'usedLetters': FieldValue.arrayUnion([letter]),
       'roundEndsAt': nowMs() + roundSeconds * 1000,
       'countdownEndsAt': 0,
       'countdownBy': '',
+      'votingEndsAt': 0,
     });
     await batch.commit();
   }
@@ -176,12 +187,29 @@ class GameService {
     });
   }
 
+  /// Pasa de "conteo" a "votación" (solo la primera llamada tiene efecto).
+  Future<void> startVoting(String code) async {
+    await db.runTransaction((tx) async {
+      final snap = await tx.get(roomRef(code));
+      if (snap.data()?['status'] != 'counting') return;
+      tx.update(roomRef(code), {
+        'status': 'voting',
+        'votingEndsAt': nowMs() + voteSeconds * 1000,
+      });
+    });
+  }
+
+  Future<void> saveVotes(String code, Map<String, bool> votes,
+      {bool voted = false}) {
+    return playersRef(code).doc(uid).update({'votes': votes, 'voted': voted});
+  }
+
   /// Calcula puntajes. Solo la primera llamada tiene efecto.
   Future<void> scoreRound(String code) async {
     var mine = false;
     await db.runTransaction((tx) async {
       final snap = await tx.get(roomRef(code));
-      if (snap.data()?['status'] != 'counting') return;
+      if (snap.data()?['status'] != 'voting') return;
       tx.update(roomRef(code), {'status': 'scoring'});
       mine = true;
     });
@@ -192,16 +220,33 @@ class GameService {
     final cats = List<String>.from(room['categories']);
     final players = await playersRef(code).get();
 
-    // Cuenta cuántos jugadores (no tramposos) escribieron cada palabra.
+    // Una palabra es inválida si la mayoría de los OTROS jugadores la votó inválida.
+    bool invalidByVote(String targetId, int catIdx) {
+      final voters = players.docs.where((q) => q.id != targetId).toList();
+      if (voters.isEmpty) return false;
+      var bad = 0;
+      for (final q in voters) {
+        final v = Map<String, dynamic>.from(q.data()['votes'] ?? {});
+        if (v['$targetId|$catIdx'] == true) bad++;
+      }
+      return bad * 2 > voters.length;
+    }
+
+    bool counts_(Map<String, dynamic> d, String id, int ci, String w) =>
+        d['cheated'] != true &&
+        isValidWord(w, letter) &&
+        !invalidByVote(id, ci);
+
+    // Cuenta cuántos jugadores escribieron cada palabra válida.
     final counts = <String, Map<String, int>>{};
-    for (final cat in cats) {
+    for (var ci = 0; ci < cats.length; ci++) {
+      final cat = cats[ci];
       counts[cat] = {};
       for (final p in players.docs) {
         final d = p.data();
-        if (d['cheated'] == true) continue;
         final ans = Map<String, dynamic>.from(d['answers'] ?? {});
         final w = ans[cat] as String? ?? '';
-        if (!isValidWord(w, letter)) continue;
+        if (!counts_(d, p.id, ci, w)) continue;
         final key = normalize(w);
         counts[cat]![key] = (counts[cat]![key] ?? 0) + 1;
       }
@@ -211,17 +256,22 @@ class GameService {
     for (final p in players.docs) {
       final d = p.data();
       var score = 0;
-      if (d['cheated'] != true) {
-        final ans = Map<String, dynamic>.from(d['answers'] ?? {});
-        for (final cat in cats) {
-          final w = ans[cat] as String? ?? '';
-          if (!isValidWord(w, letter)) continue;
-          final n = counts[cat]![normalize(w)] ?? 1;
-          score += n == 1 ? pointsUnique : pointsRepeated;
+      final rejected = <String>[];
+      final ans = Map<String, dynamic>.from(d['answers'] ?? {});
+      for (var ci = 0; ci < cats.length; ci++) {
+        final cat = cats[ci];
+        final w = ans[cat] as String? ?? '';
+        if (w.isEmpty || d['cheated'] == true) continue;
+        if (!counts_(d, p.id, ci, w)) {
+          rejected.add('$cat: $w');
+          continue;
         }
+        final n = counts[cat]![normalize(w)] ?? 1;
+        score += n == 1 ? pointsUnique : pointsRepeated;
       }
       batch.update(p.reference, {
         'roundScore': score,
+        'rejected': rejected,
         'total': (d['total'] as int? ?? 0) + score,
       });
     }
