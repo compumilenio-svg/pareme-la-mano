@@ -337,6 +337,9 @@ class _BingoRoomPageState extends State<BingoRoomPage>
   List<List<bool>> myMarks = [];
   int myRound = -1;
   bool claimed = false;
+  // Las marcas se ven solo ~20 s para que los jugadores sigan atentos.
+  final Map<String, int> markedAt = {};
+  static const int markShowMs = 20000;
 
   // Bolas
   int seenBalls = -1;
@@ -357,13 +360,23 @@ class _BingoRoomPageState extends State<BingoRoomPage>
   bool get isHost => room?['hostId'] == svc.uid;
   String get status => (room?['status'] as String?) ?? 'lobby';
   List<int> get balls => List<int>.from((room?['balls'] as List?) ?? const []);
+  /// Bolas ya reveladas: la última no se muestra hasta que sale de la tómbola.
+  List<int> get shownBalls {
+    final b = balls;
+    if (b.isNotEmpty && seenBalls == b.length && _ballAnim.isAnimating &&
+        _ballAnim.value < 0.55) {
+      return b.sublist(0, b.length - 1);
+    }
+    return b;
+  }
+
   int get priceCents => (room?['priceCents'] as int?) ?? 50;
 
   @override
   void initState() {
     super.initState();
     _ballAnim = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1100))
+        vsync: this, duration: const Duration(milliseconds: 2800))
       ..addListener(() {
         if (mounted) setState(() {});
       });
@@ -413,11 +426,12 @@ class _BingoRoomPageState extends State<BingoRoomPage>
     } else if (b.length > seenBalls) {
       seenBalls = b.length;
       _ballAnim.forward(from: 0);
-      Sfx.play('ball');
-      if (voiceOn) {
-        final n = b.last;
-        BingoVoice.say('${bingoLetter(n)}, $n');
-      }
+      Sfx.play('tombola');
+      Sfx.play('ball', delayMs: 1500);
+      final n = b.last;
+      Future<void>.delayed(const Duration(milliseconds: 1550), () {
+        if (mounted && voiceOn) BingoVoice.say('${bingoLetter(n)}, $n');
+      });
     } else if (b.length < seenBalls) {
       seenBalls = b.length;
       _ballAnim.value = 0;
@@ -426,6 +440,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
     // Nueva partida: las cartillas se renuevan
     if (st == 'lobby') {
       finishedShown = false;
+      markedAt.clear();
       claimed = false;
       finalizing = false;
       drawTimer?.cancel();
@@ -557,7 +572,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
     if (status != 'playing' || claimed) return;
     final n = myCards[ci][idx];
     if (n == 0) return;
-    final drawn = balls.toSet();
+    final drawn = shownBalls.toSet();
     if (!drawn.contains(n)) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -566,7 +581,18 @@ class _BingoRoomPageState extends State<BingoRoomPage>
             content: Text('Ese número todavía no ha salido')));
       return;
     }
-    setState(() => myMarks[ci][idx] = !myMarks[ci][idx]);
+    final key = '$ci:$idx';
+    setState(() {
+      myMarks[ci][idx] = !myMarks[ci][idx];
+      if (myMarks[ci][idx]) {
+        markedAt[key] = nowMs();
+        Timer(const Duration(milliseconds: markShowMs + 100), () {
+          if (mounted) setState(() {});
+        });
+      } else {
+        markedAt.remove(key);
+      }
+    });
     Sfx.play('tick');
     svc.playersRef(code).doc(svc.uid).update({
       'marks': [for (final m in myMarks) marksToString(m)],
@@ -854,12 +880,14 @@ class _BingoRoomPageState extends State<BingoRoomPage>
       );
     }
     final v = _ballAnim.value.clamp(0.0, 1.0);
-    final t = Curves.easeOutBack.transform(v);
+    // 0 a 0.55: la tómbola gira con las bolas; 0.55 a 1: sale la bola y crece.
+    final q = ((v - 0.55) / 0.45).clamp(0.0, 1.0);
+    final t = Curves.easeOutBack.transform(q);
     final m = Matrix4.identity()
       ..setEntry(3, 2, 0.0012)
-      ..translate(0.0, (1 - t) * -110.0, 0.0)
-      ..rotateY((1 - v) * 2 * pi)
+      ..rotateY((1 - q) * 2 * pi)
       ..scale(0.2 + 0.8 * t, 0.2 + 0.8 * t, 1.0);
+    final animating = v < 1.0 && seenBalls == b.length && _ballAnim.isAnimating;
     return LayoutBuilder(builder: (context, c) {
       final size = min(c.maxWidth, c.maxHeight) * 0.86;
       return Stack(
@@ -872,22 +900,34 @@ class _BingoRoomPageState extends State<BingoRoomPage>
               height: size * 0.12,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.black.withOpacity(0.12 * v),
+                color: Colors.black.withOpacity(0.12 * q),
               ),
             ),
           ),
-          Transform(
-            alignment: Alignment.center,
-            transform: m,
-            child: BingoBallWidget(n: b.last, size: size),
-          ),
+          if (animating)
+            Opacity(
+              opacity: (1 - q).clamp(0.0, 1.0),
+              child: Transform.scale(
+                scale: 1 - 0.25 * q,
+                child: CustomPaint(
+                  size: Size(size, size),
+                  painter: _TombolaPainter(v * 2.8, Curves.easeIn.transform((v / 0.55).clamp(0.0, 1.0))),
+                ),
+              ),
+            ),
+          if (!animating || v >= 0.55)
+            Transform(
+              alignment: Alignment.center,
+              transform: m,
+              child: BingoBallWidget(n: b.last, size: size),
+            ),
         ],
       );
     });
   }
 
   Widget _smallBalls() {
-    final b = balls.reversed.toList();
+    final b = shownBalls.reversed.toList();
     return Container(
       margin: const EdgeInsets.fromLTRB(4, 4, 8, 4),
       padding: const EdgeInsets.all(6),
@@ -1000,7 +1040,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
     if (myCards.isEmpty) {
       return const Center(child: Text('No tienes cartillas en esta partida.'));
     }
-    final drawn = balls.toSet();
+    final drawn = shownBalls.toSet();
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(10, 4, 10, 16),
       itemCount: myCards.length,
@@ -1066,6 +1106,8 @@ class _BingoRoomPageState extends State<BingoRoomPage>
   Widget _cell(int ci, int idx, double cell, Set<int> drawn) {
     final n = myCards[ci][idx];
     final marked = myMarks[ci][idx];
+    final at = markedAt['$ci:$idx'];
+    final shown = marked && at != null && nowMs() - at < markShowMs;
     final free = n == 0;
     final called = !free && drawn.contains(n);
     return GestureDetector(
@@ -1076,7 +1118,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
         decoration: BoxDecoration(
           color: free
               ? Colors.amber.shade200
-              : (marked ? const Color(0xFFFFF59D) : const Color(0xFFF5F5F5)),
+              : (shown ? const Color(0xFFFFF59D) : const Color(0xFFF5F5F5)),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
               color: called && !marked ? Colors.orange : Colors.black12,
@@ -1101,11 +1143,78 @@ class _BingoRoomPageState extends State<BingoRoomPage>
                       fontSize: cell * 0.46,
                       fontWeight: FontWeight.bold,
                       color: Colors.black87)),
-            if (marked && !free)
+            if (shown && !free)
               Positioned.fill(child: CustomPaint(painter: _XPainter())),
           ],
         ),
       ),
     );
   }
+}
+
+
+/// Tómbola de bingo: jaula que gira con las bolas saltando adentro.
+class _TombolaPainter extends CustomPainter {
+  final double time; // segundos
+  final double calm; // 0 = a toda marcha, 1 = casi quieta
+  _TombolaPainter(this.time, this.calm);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height * 0.46);
+    final r = size.width * 0.40;
+    // Soporte
+    final stand = Paint()
+      ..color = const Color(0xFF5D4037)
+      ..strokeWidth = r * 0.09
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(c + Offset(-r * 0.55, r * 0.85), c + Offset(-r * 0.8, r * 1.3), stand);
+    canvas.drawLine(c + Offset(r * 0.55, r * 0.85), c + Offset(r * 0.8, r * 1.3), stand);
+    canvas.drawLine(c + Offset(-r * 0.9, r * 1.3), c + Offset(r * 0.9, r * 1.3), stand);
+    // Fondo de la jaula
+    canvas.drawCircle(c, r, Paint()..color = Colors.white.withOpacity(0.55));
+    // Bolas saltando
+    for (var i = 0; i < 14; i++) {
+      final w = (1.6 + (i % 5) * 0.55) * (1 - 0.6 * calm);
+      final a = i * 2.399 + time * w * 3;
+      final rr = r * (0.22 + 0.5 * ((i * 0.6180339) % 1));
+      final p = Offset(c.dx + cos(a) * rr, c.dy + sin(a * 1.31 + i) * rr * 0.9);
+      final br = r * 0.17;
+      final col = ballColor(1 + (i * 13 + 5) % 75);
+      canvas.drawCircle(
+          p,
+          br,
+          Paint()
+            ..shader = RadialGradient(
+              center: const Alignment(-0.4, -0.5),
+              colors: [Color.lerp(col, Colors.white, 0.7)!, col, Color.lerp(col, Colors.black, 0.45)!],
+              stops: const [0.0, 0.55, 1.0],
+            ).createShader(Rect.fromCircle(center: p, radius: br)));
+      canvas.drawCircle(p, br * 0.45, Paint()..color = Colors.white.withOpacity(0.85));
+    }
+    // Barrotes que giran
+    final ang = time * 4.5 * (1 - 0.7 * calm);
+    final bar = Paint()
+      ..color = const Color(0xFF90A4AE)
+      ..strokeWidth = r * 0.04
+      ..strokeCap = StrokeCap.round;
+    for (var k = 0; k < 6; k++) {
+      final a = ang + k * pi / 3;
+      canvas.drawLine(c, c + Offset(cos(a), sin(a)) * r, bar);
+    }
+    // Aro y manija
+    canvas.drawCircle(
+        c,
+        r,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..color = const Color(0xFF455A64)
+          ..strokeWidth = r * 0.07);
+    final h = c + Offset(cos(ang), sin(ang)) * r * 1.12;
+    canvas.drawCircle(h, r * 0.1, Paint()..color = const Color(0xFFFFB300));
+    canvas.drawCircle(c, r * 0.08, Paint()..color = const Color(0xFF455A64));
+  }
+
+  @override
+  bool shouldRepaint(covariant _TombolaPainter old) => true;
 }
