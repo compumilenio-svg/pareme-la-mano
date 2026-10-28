@@ -764,10 +764,20 @@ class _BoardPainter extends CustomPainter {
             ..strokeCap = StrokeCap.round);
     }
 
+    // Contorno de la galleta (ya dibujado)
+    final edgePaint = Paint()
+      ..color = const Color(0xFF3E2723)
+      ..strokeWidth = geo.cell * 0.09
+      ..strokeCap = StrokeCap.round;
+    for (final e in g.border) {
+      final (a, b) = geo.ends(e);
+      canvas.drawLine(a, b, edgePaint);
+    }
+
     // Puntos
     final dotPaint = Paint()..color = const Color(0xFF3E2723);
     final used = <int>{};
-    for (final e in g.usable) {
+    for (final e in [...g.usable, ...g.border]) {
       final (a, b) = geo.ends(e);
       for (final p in [a, b]) {
         final key = (p.dy / geo.cell * 1000).round() * 100000 +

@@ -124,6 +124,7 @@ class GalletaGame {
   int lastEdge = -1;
   int moveCount = 0;
   late final List<int> usable; // aristas que tocan alguna celda de la figura
+  late final List<int> border; // contorno: ya dibujado, no se juega
   late final int totalCells;
 
   GalletaGame(this.w, this.h, List<bool> m)
@@ -151,9 +152,23 @@ class GalletaGame {
   void _init() {
     final u = <int>[];
     for (var e = 0; e < edgeCount; e++) {
-      if (cellsOfEdge(e).isNotEmpty) u.add(e);
+      final n = cellsOfEdge(e).length;
+      if (n >= 2) {
+        u.add(e);
+      } else if (n == 1) {
+        // Contorno de la galleta: ya viene dibujado (3 = trazo neutro).
+        if (e < horCount) {
+          hor[e] = 3;
+        } else {
+          ver[e - horCount] = 3;
+        }
+      }
     }
     usable = u;
+    border = [
+      for (var e = 0; e < edgeCount; e++)
+        if (cellsOfEdge(e).length == 1) e
+    ];
     totalCells = mask.where((x) => x).length;
   }
 
