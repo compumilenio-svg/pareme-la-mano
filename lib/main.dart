@@ -4,6 +4,7 @@ import 'chess/chess_pages.dart';
 import 'cuarenta/cuarenta_page.dart';
 import 'game_service.dart';
 import 'room_page.dart';
+import 'sfx.dart';
 
 // Configuración de Firebase (proyecto "Noche de juegos").
 const firebaseOptions = FirebaseOptions(
@@ -47,7 +48,22 @@ class MenuPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Noche de juegos')),
+      appBar: AppBar(
+        title: const Text('Noche de juegos'),
+        actions: [
+          ValueListenableBuilder<bool>(
+            valueListenable: Sfx.enabled,
+            builder: (context, on, _) => IconButton(
+              tooltip: on ? 'Silenciar sonidos' : 'Activar sonidos',
+              icon: Icon(on ? Icons.volume_up : Icons.volume_off),
+              onPressed: () {
+                Sfx.enabled.value = !on;
+                if (!on) Sfx.play('tick');
+              },
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
