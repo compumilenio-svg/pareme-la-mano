@@ -9,7 +9,7 @@ class FightInfo {
   const FightInfo(this.from, this.to, this.defSq, this.attacker, this.defender);
 }
 
-/// Proyección en perspectiva del tablero (tablero inclinado hacia atrás).
+/// Proyección en perspectiva del tablero (inclinado, con zoom, giro y desplazamiento).
 class Proj {
   static const double D = 11.0;
   static const double th = 0.95;
@@ -18,8 +18,11 @@ class Proj {
   late final double F;
   late final double cx;
   late final double cy;
+  late final double sinY;
+  late final double cosY;
 
-  Proj(double w, double h) {
+  Proj(double w, double h,
+      {double zoom = 1, double yaw = 0, Offset pan = Offset.zero}) {
     final zNear = D - 4.4 * sinT;
     final f1 = (w / 2 * 0.97) * zNear / 4.4;
     final zf = D + 3.5 * sinT;
@@ -27,22 +30,33 @@ class Proj {
     final top1 = min(-4.4 * cosT / zFrame, -3.5 * cosT / zf - 1.8 / zf);
     final bottom1 = 4.4 * cosT / zNear + 0.5 / zNear;
     final total1 = bottom1 - top1;
-    F = min(f1, h / total1);
-    cx = w / 2;
-    cy = (h - F * total1) / 2 - F * top1;
+    F = min(f1, h / total1) * zoom;
+    cx = w / 2 + pan.dx;
+    cy = (h - min(f1, h / total1) * total1) / 2 -
+        min(f1, h / total1) * top1 +
+        pan.dy;
+    sinY = sin(yaw);
+    cosY = cos(yaw);
   }
 
-  double scaleAt(double y) => F / (D - (y - 4) * sinT);
+  // Profundidad (hacia el jugador = mayor) tras girar la vista.
+  double depth(double x, double y) =>
+      (x - 4) * sinY + (y - 4) * cosY;
+
+  double scaleAt(double x, double y) => F / (D - depth(x, y) * sinT);
 
   Offset project(double x, double y) {
-    final z = D - (y - 4) * sinT;
-    return Offset(cx + (x - 4) * F / z, cy + (y - 4) * cosT * F / z);
+    final u = x - 4, v = y - 4;
+    final ru = u * cosY - v * sinY;
+    final rv = u * sinY + v * cosY;
+    final z = D - rv * sinT;
+    return Offset(cx + ru * F / z, cy + rv * cosT * F / z);
   }
 }
 
 const double _cellsPerPx = 1.2 / 300;
 
-class Board3D extends StatelessWidget {
+class _BoardView extends StatelessWidget {
   final ChessState state;
   final bool flipped;
   final ChessCountry whiteCountry;
@@ -53,14 +67,19 @@ class Board3D extends StatelessWidget {
   final FightInfo? fight;
   final double fightT;
   final void Function(int sq) onTap;
+  final double zoom, yaw;
+  final Offset pan;
 
-  const Board3D({
+  const _BoardView({
     super.key,
     required this.state,
     required this.flipped,
     required this.whiteCountry,
     required this.blackCountry,
     required this.onTap,
+    required this.zoom,
+    required this.yaw,
+    required this.pan,
     this.selected,
     this.targets = const {},
     this.lastMove,
@@ -79,7 +98,7 @@ class Board3D extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, c) {
-      final proj = Proj(c.maxWidth, c.maxHeight);
+      final proj = Proj(c.maxWidth, c.maxHeight, zoom: zoom, yaw: yaw, pan: pan);
       final hidden = <int>{};
       if (fight != null) {
         hidden.add(fight!.from);
@@ -94,7 +113,7 @@ class Board3D extends StatelessWidget {
         if (v == 0 || hidden.contains(sq)) continue;
         final cc = _center(sq);
         rings.add(_ring(proj, cc, v > 0));
-        pieceWidgets.add(MapEntry(cc.dy, _pieceWidget(proj, v, cc, 1, 1, 0)));
+        pieceWidgets.add(MapEntry(proj.depth(cc.dx, cc.dy), _pieceWidget(proj, v, cc, 1, 1, 0)));
       }
 
       // Pelea
@@ -130,16 +149,17 @@ class Board3D extends StatelessWidget {
         rings.add(_ring(proj, aPos, f.attacker > 0));
         if (t < 0.65) rings.add(_ring(proj, dd, f.defender > 0));
         pieceWidgets.add(MapEntry(
-            dd.dy, _pieceWidget(proj, f.defender, dDraw, dOpacity, dScale, dLift)));
+            proj.depth(dd.dx, dd.dy),
+            _pieceWidget(proj, f.defender, dDraw, dOpacity, dScale, dLift)));
         pieceWidgets.add(MapEntry(
-            aDraw.dy + 0.001, _pieceWidget(proj, f.attacker, aDraw, 1, 1, 0)));
+            proj.depth(aDraw.dx, aDraw.dy) + 0.001, _pieceWidget(proj, f.attacker, aDraw, 1, 1, 0)));
 
         // Efectos: choque y humo
         final children = <Widget>[];
         if (t > 0.18 && t < 0.7) {
           final mid = Offset((aPos.dx + dd.dx) / 2, (aPos.dy + dd.dy) / 2);
           final p = proj.project(mid.dx, mid.dy);
-          final s = proj.scaleAt(mid.dy);
+          final s = proj.scaleAt(mid.dx, mid.dy);
           final pulse = 0.8 + 0.4 * sin(t * 60).abs();
           final size = s * 0.9 * pulse;
           children.add(Positioned(
@@ -151,7 +171,7 @@ class Board3D extends StatelessWidget {
         if (t >= 0.65) {
           final u = (t - 0.65) / 0.35;
           final p = proj.project(dd.dx, dd.dy);
-          final s = proj.scaleAt(dd.dy);
+          final s = proj.scaleAt(dd.dx, dd.dy);
           for (var i = 0; i < 7; i++) {
             final ang = i * 0.9;
             final dx = cos(ang) * s * 0.35 * (0.4 + u);
@@ -178,7 +198,7 @@ class Board3D extends StatelessWidget {
 
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTapDown: (d) {
+        onTapUp: (d) {
           final sq = _hit(proj, d.localPosition);
           if (sq != null) onTap(sq);
         },
@@ -207,7 +227,7 @@ class Board3D extends StatelessWidget {
 
   _Ring _ring(Proj proj, Offset boardPos, bool white) {
     final p = proj.project(boardPos.dx, boardPos.dy);
-    final s = proj.scaleAt(boardPos.dy);
+    final s = proj.scaleAt(boardPos.dx, boardPos.dy);
     return _Ring(p, s * 0.40, s * 0.40 * proj.cosT * 0.9, white);
   }
 
@@ -217,7 +237,7 @@ class Board3D extends StatelessWidget {
     final type = piece.abs();
     final size = country.size(type);
     final p = proj.project(boardPos.dx, boardPos.dy);
-    final s = proj.scaleAt(boardPos.dy);
+    final s = proj.scaleAt(boardPos.dx, boardPos.dy);
     final h = size[1] * _cellsPerPx * s;
     final w = size[0] * _cellsPerPx * s;
     final bottom = p.dy + 0.10 * s - lift * s;
@@ -302,7 +322,10 @@ class _BoardPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // Marco con grosor
     final frame = _quad(proj, -0.45, -0.45, 8.9);
-    final thick = proj.scaleAt(8.45) * 0.45;
+    var thick = 0.0;
+    for (final p in const [Offset(-0.45, -0.45), Offset(8.45, -0.45), Offset(8.45, 8.45), Offset(-0.45, 8.45)]) {
+      thick = max(thick, proj.scaleAt(p.dx, p.dy) * 0.45);
+    }
     canvas.drawPath(frame.shift(Offset(0, thick)),
         Paint()..color = const Color(0xFF3B2412));
     canvas.drawPath(frame, Paint()..color = const Color(0xFF6B4423));
@@ -351,7 +374,7 @@ class _BoardPainter extends CustomPainter {
     for (final sq in targets) {
       final cc = Offset(_dc(sq) + 0.5, _dr(sq) + 0.5);
       final p = proj.project(cc.dx, cc.dy);
-      final s = proj.scaleAt(cc.dy);
+      final s = proj.scaleAt(cc.dx, cc.dy);
       final capture = state.b[sq] != 0 ||
           (state.ep == sq && selected != null && state.b[selected!].abs() == pPawn);
       final rect =
@@ -371,4 +394,129 @@ class _BoardPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BoardPainter old) => true;
+}
+
+
+/// Tablero 3D con zoom (pellizco o botones), giro de la vista (dos dedos o
+/// botones) y desplazamiento (arrastrar).
+class Board3D extends StatefulWidget {
+  final ChessState state;
+  final bool flipped;
+  final ChessCountry whiteCountry;
+  final ChessCountry blackCountry;
+  final int? selected;
+  final Set<int> targets;
+  final ChessMove? lastMove;
+  final FightInfo? fight;
+  final double fightT;
+  final void Function(int sq) onTap;
+
+  const Board3D({
+    super.key,
+    required this.state,
+    required this.flipped,
+    required this.whiteCountry,
+    required this.blackCountry,
+    required this.onTap,
+    this.selected,
+    this.targets = const {},
+    this.lastMove,
+    this.fight,
+    this.fightT = 0,
+  });
+
+  @override
+  State<Board3D> createState() => _Board3DState();
+}
+
+class _Board3DState extends State<Board3D> {
+  double zoom = 1.25;
+  double yaw = 0;
+  Offset pan = Offset.zero;
+  double _z0 = 1, _y0 = 0;
+  Offset _p0 = Offset.zero, _f0 = Offset.zero;
+
+  void _reset() => setState(() {
+        zoom = 1.25;
+        yaw = 0;
+        pan = Offset.zero;
+      });
+
+  Widget _btn(IconData icon, String tip, VoidCallback f) => IconButton(
+        icon: Icon(icon, color: Colors.white),
+        tooltip: tip,
+        visualDensity: VisualDensity.compact,
+        onPressed: f,
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final w = widget;
+    return ClipRect(
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              onScaleStart: (d) {
+                _z0 = zoom;
+                _y0 = yaw;
+                _p0 = pan;
+                _f0 = d.focalPoint;
+              },
+              onScaleUpdate: (d) {
+                setState(() {
+                  zoom = (_z0 * d.scale).clamp(0.6, 3.5);
+                  yaw = _y0 + d.rotation;
+                  final np = _p0 + (d.focalPoint - _f0);
+                  pan = Offset(np.dx.clamp(-700.0, 700.0), np.dy.clamp(-900.0, 900.0));
+                });
+              },
+              child: _BoardView(
+                state: w.state,
+                flipped: w.flipped,
+                whiteCountry: w.whiteCountry,
+                blackCountry: w.blackCountry,
+                selected: w.selected,
+                targets: w.targets,
+                lastMove: w.lastMove,
+                fight: w.fight,
+                fightT: w.fightT,
+                onTap: w.onTap,
+                zoom: zoom,
+                yaw: yaw,
+                pan: pan,
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 4,
+            child: Center(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _btn(Icons.zoom_out, 'Alejar',
+                        () => setState(() => zoom = (zoom / 1.2).clamp(0.6, 3.5))),
+                    _btn(Icons.zoom_in, 'Acercar',
+                        () => setState(() => zoom = (zoom * 1.2).clamp(0.6, 3.5))),
+                    _btn(Icons.rotate_left, 'Girar a la izquierda',
+                        () => setState(() => yaw -= pi / 8)),
+                    _btn(Icons.rotate_right, 'Girar a la derecha',
+                        () => setState(() => yaw += pi / 8)),
+                    _btn(Icons.center_focus_strong, 'Restablecer vista', _reset),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
