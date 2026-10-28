@@ -116,66 +116,133 @@ class _BoardView extends StatelessWidget {
         pieceWidgets.add(MapEntry(proj.depth(cc.dx, cc.dy), _pieceWidget(proj, v, cc, 1, 1, 0)));
       }
 
-      // Pelea
+      // Pelea: cada uno saca su espada, dos choques y cae el comido.
+      // La torre, en cambio, salta y le cae encima.
       Widget? fx;
       if (fight != null) {
         final f = fight!;
         final t = fightT.clamp(0.0, 1.0);
+        final isRook = f.attacker.abs() == pRook;
         final a0 = _center(f.from);
         final tt = _center(f.to);
         final dd = _center(f.defSq);
-        final near = Offset(a0.dx + (tt.dx - a0.dx) * 0.72, a0.dy + (tt.dy - a0.dy) * 0.72);
+        Offset lerp(Offset a, Offset b, double u) =>
+            Offset(a.dx + (b.dx - a.dx) * u, a.dy + (b.dy - a.dy) * u);
+        final near = lerp(a0, tt, 0.70);
+
+        // Fase de choques de espadas (t entre 0.28 y 0.62)
+        final inClash = t >= 0.28 && t < 0.62;
+        final k = inClash ? (t - 0.28) / 0.34 : 0.0;
+        final swing = inClash ? sin(k * 2 * pi).abs() : 0.0;
+        final sparkI = inClash ? max(0.0, (swing - 0.8) / 0.2) : 0.0;
+        final shake = sparkI * 0.05 * sin(t * 140);
+
+        // Posición y salto del atacante
         Offset aPos;
-        if (t < 0.2) {
-          final u = Curves.easeOut.transform(t / 0.2);
-          aPos = Offset(a0.dx + (near.dx - a0.dx) * u, a0.dy + (near.dy - a0.dy) * u);
-        } else if (t < 0.8) {
+        double aLift = 0;
+        if (t < 0.15) {
+          aPos = lerp(a0, near, Curves.easeOut.transform(t / 0.15));
+        } else if (t < 0.62) {
           aPos = near;
+        } else if (isRook) {
+          if (t < 0.78) {
+            final u = (t - 0.62) / 0.16;
+            aPos = lerp(near, tt, Curves.easeIn.transform(u));
+            aLift = sin(u * pi) * 1.7;
+          } else {
+            aPos = tt;
+          }
         } else {
-          final u = (t - 0.8) / 0.2;
-          aPos = Offset(near.dx + (tt.dx - near.dx) * u, near.dy + (tt.dy - near.dy) * u);
+          final u = ((t - 0.62) / 0.38).clamp(0.0, 1.0);
+          aPos = lerp(near, tt, Curves.easeOut.transform(u));
         }
-        final shake = (t > 0.2 && t < 0.7) ? sin(t * 90) * 0.05 : 0.0;
         final aDraw = Offset(aPos.dx + shake, aPos.dy);
+
+        // Caída del defensor
+        final deathStart = isRook ? 0.76 : 0.68;
         var dDraw = dd;
-        double dOpacity = 1, dScale = 1, dLift = 0;
-        if (t > 0.2 && t < 0.65) dDraw = Offset(dd.dx - shake, dd.dy);
-        if (t >= 0.65) {
-          final u = (t - 0.65) / 0.35;
-          dOpacity = 1 - u;
-          dScale = 1 + 0.25 * u;
-          dLift = u * 1.2;
+        double dOpacity = 1, dScale = 1, dLift = 0, dSquash = 1;
+        if (inClash) dDraw = Offset(dd.dx - shake, dd.dy);
+        if (t >= deathStart) {
+          final u = ((t - deathStart) / (1 - deathStart)).clamp(0.0, 1.0);
+          if (isRook) {
+            dSquash = 1 - 0.8 * min(1.0, u * 3);
+            dScale = 1 + 0.15 * min(1.0, u * 3);
+            dOpacity = 1 - max(0.0, (u - 0.3) / 0.7);
+          } else {
+            dOpacity = 1 - u;
+            dScale = 1 + 0.25 * u;
+            dLift = u * 1.2;
+          }
         }
         rings.add(_ring(proj, aPos, f.attacker > 0));
-        if (t < 0.65) rings.add(_ring(proj, dd, f.defender > 0));
+        if (t < deathStart) rings.add(_ring(proj, dd, f.defender > 0));
         pieceWidgets.add(MapEntry(
             proj.depth(dd.dx, dd.dy),
-            _pieceWidget(proj, f.defender, dDraw, dOpacity, dScale, dLift)));
-        pieceWidgets.add(MapEntry(
-            proj.depth(aDraw.dx, aDraw.dy) + 0.001, _pieceWidget(proj, f.attacker, aDraw, 1, 1, 0)));
+            _pieceWidget(proj, f.defender, dDraw, dOpacity, dScale, dLift,
+                squash: dSquash)));
+        pieceWidgets.add(MapEntry(proj.depth(aDraw.dx, aDraw.dy) + 0.001,
+            _pieceWidget(proj, f.attacker, aDraw, 1, 1, aLift)));
 
-        // Efectos: choque y humo
         final children = <Widget>[];
-        if (t > 0.18 && t < 0.7) {
-          final mid = Offset((aPos.dx + dd.dx) / 2, (aPos.dy + dd.dy) / 2);
-          final p = proj.project(mid.dx, mid.dy);
-          final s = proj.scaleAt(mid.dx, mid.dy);
-          final pulse = 0.8 + 0.4 * sin(t * 60).abs();
-          final size = s * 0.9 * pulse;
-          children.add(Positioned(
-            left: p.dx - size / 2,
-            top: p.dy - s * 0.9 - size / 2,
-            child: Text('💥', style: TextStyle(fontSize: size)),
+
+        // Espadas
+        final pa = proj.project(aDraw.dx, aDraw.dy);
+        final pd = proj.project(dDraw.dx, dDraw.dy);
+        final sA = proj.scaleAt(aDraw.dx, aDraw.dy);
+        final sD = proj.scaleAt(dDraw.dx, dDraw.dy);
+        final sideA = pd.dx >= pa.dx ? 1.0 : -1.0;
+        final draw = ((t - 0.15) / 0.13).clamp(0.0, 1.0);
+        if (t > 0.15) {
+          double theta(bool attacker) {
+            if (inClash) return -0.3 + 1.2 * swing;
+            if (attacker && !isRook && t >= 0.62 && t < 0.72) return 1.4;
+            return -0.6;
+          }
+
+          double aAlpha = draw, dAlpha = draw;
+          if (isRook) {
+            if (t >= 0.62) aAlpha = 0;
+          } else if (t > 0.85) {
+            aAlpha = draw * (1 - (t - 0.85) / 0.1).clamp(0.0, 1.0);
+          }
+          if (t >= deathStart) {
+            dAlpha = draw * (1 - (t - deathStart) / 0.08).clamp(0.0, 1.0);
+          }
+          final swords = <_SwordSpec>[
+            _SwordSpec(Offset(pa.dx + sideA * 0.22 * sA, pa.dy - 0.55 * sA - aLift * sA),
+                sideA, theta(true), sA * 0.95 * (0.4 + 0.6 * draw), aAlpha, true),
+            _SwordSpec(Offset(pd.dx - sideA * 0.22 * sD, pd.dy - 0.55 * sD),
+                -sideA, theta(false), sD * 0.95 * (0.4 + 0.6 * draw), dAlpha, false),
+          ];
+          // Chispas del choque o del golpe final
+          Offset? spark;
+          double sparkPower = 0;
+          if (sparkI > 0) {
+            spark = Offset((pa.dx + pd.dx) / 2, (pa.dy + pd.dy) / 2 - 0.75 * sA);
+            sparkPower = sparkI;
+          } else if (!isRook && t >= 0.62 && t < 0.72) {
+            spark = Offset(pd.dx, pd.dy - 0.6 * sD);
+            sparkPower = (1 - (t - 0.66).abs() / 0.04).clamp(0.0, 1.0);
+          }
+          children.add(Positioned.fill(
+            child: CustomPaint(
+              painter: _SwordFxPainter(swords, spark, sparkPower, sA),
+            ),
           ));
         }
-        if (t >= 0.65) {
-          final u = (t - 0.65) / 0.35;
+
+        // Polvo / humo del que cae
+        if (t >= deathStart) {
+          final u = (t - deathStart) / (1 - deathStart);
           final p = proj.project(dd.dx, dd.dy);
           final s = proj.scaleAt(dd.dx, dd.dy);
           for (var i = 0; i < 7; i++) {
             final ang = i * 0.9;
-            final dx = cos(ang) * s * 0.35 * (0.4 + u);
-            final dy = -u * s * (0.8 + 0.15 * i) - 0.2 * s;
+            final dx = cos(ang) * s * (isRook ? 0.6 : 0.35) * (0.4 + u);
+            final dy = isRook
+                ? -u * s * 0.25 * (1 + 0.2 * i) - 0.05 * s
+                : -u * s * (0.8 + 0.15 * i) - 0.2 * s;
             final r = s * (0.12 + 0.1 * u + 0.02 * i);
             children.add(Positioned(
               left: p.dx + dx - r,
@@ -185,7 +252,8 @@ class _BoardView extends StatelessWidget {
                 height: r * 2,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Colors.white.withOpacity((1 - u) * 0.55),
+                  color: (isRook ? const Color(0xFFBCAAA4) : Colors.white)
+                      .withOpacity((1 - u) * 0.55),
                 ),
               ),
             ));
@@ -232,7 +300,8 @@ class _BoardView extends StatelessWidget {
   }
 
   Widget _pieceWidget(Proj proj, int piece, Offset boardPos, double opacity,
-      double scale, double lift) {
+      double scale, double lift,
+      {double squash = 1}) {
     final country = _country(piece);
     final type = piece.abs();
     final size = country.size(type);
@@ -250,7 +319,8 @@ class _BoardView extends StatelessWidget {
         child: Opacity(
           opacity: opacity.clamp(0.0, 1.0),
           child: Transform.scale(
-            scale: scale,
+            scaleX: scale,
+            scaleY: scale * squash,
             alignment: Alignment.bottomCenter,
             child: Image.asset(country.asset(type),
                 fit: BoxFit.fill, gaplessPlayback: true),
@@ -519,4 +589,88 @@ class _Board3DState extends State<Board3D> {
       ),
     );
   }
+}
+
+class _SwordSpec {
+  final Offset pivot;
+  final double side; // +1 apunta a la derecha, -1 a la izquierda
+  final double theta; // 0 = vertical, + inclina hacia el rival
+  final double len;
+  final double alpha;
+  final bool attacker;
+  const _SwordSpec(
+      this.pivot, this.side, this.theta, this.len, this.alpha, this.attacker);
+}
+
+class _SwordFxPainter extends CustomPainter {
+  final List<_SwordSpec> swords;
+  final Offset? spark;
+  final double sparkPower;
+  final double s;
+  _SwordFxPainter(this.swords, this.spark, this.sparkPower, this.s);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final w in swords) {
+      if (w.alpha <= 0.01) continue;
+      final dir = Offset(w.side * sin(w.theta), -cos(w.theta));
+      final perp = Offset(-dir.dy, dir.dx);
+      final l = w.len;
+      final hilt = w.pivot;
+      final guard = hilt + dir * (l * 0.14);
+      final tip = hilt + dir * l;
+      final a = w.alpha.clamp(0.0, 1.0);
+      final grip = Paint()
+        ..color = const Color(0xFF5D4037).withOpacity(a)
+        ..strokeWidth = l * 0.09
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(hilt, guard, grip);
+      canvas.drawLine(
+          guard - perp * (l * 0.12),
+          guard + perp * (l * 0.12),
+          Paint()
+            ..color = const Color(0xFFFFC107).withOpacity(a)
+            ..strokeWidth = l * 0.07
+            ..strokeCap = StrokeCap.round);
+      canvas.drawLine(
+          guard,
+          tip,
+          Paint()
+            ..color = const Color(0xFFCFD8DC).withOpacity(a)
+            ..strokeWidth = l * 0.075
+            ..strokeCap = StrokeCap.round);
+      canvas.drawLine(
+          guard + perp * (l * 0.01),
+          tip,
+          Paint()
+            ..color = Colors.white.withOpacity(a * 0.9)
+            ..strokeWidth = l * 0.025
+            ..strokeCap = StrokeCap.round);
+    }
+    if (spark != null && sparkPower > 0.01) {
+      final c = spark!;
+      final r = s * (0.25 + 0.55 * sparkPower);
+      canvas.drawCircle(
+          c,
+          r,
+          Paint()
+            ..shader = RadialGradient(colors: [
+              Colors.white.withOpacity(0.95 * sparkPower),
+              const Color(0xFFFFEB3B).withOpacity(0.6 * sparkPower),
+              const Color(0x00FF9800),
+            ]).createShader(Rect.fromCircle(center: c, radius: r)));
+      final ray = Paint()
+        ..color = Colors.white.withOpacity(sparkPower)
+        ..strokeWidth = max(1.5, s * 0.03)
+        ..strokeCap = StrokeCap.round;
+      for (var i = 0; i < 12; i++) {
+        final ang = i * pi / 6 + 0.3;
+        final d = Offset(cos(ang), sin(ang));
+        canvas.drawLine(c + d * (r * 0.5), c + d * (r * (1.1 + 0.5 * (i % 3) / 2)), ray);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SwordFxPainter old) => true;
 }

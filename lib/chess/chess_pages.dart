@@ -514,8 +514,16 @@ class _ChessMatchPageState extends State<ChessMatchPage>
     }
     final capture = before.b[m.to] != 0 || m.ep;
     if (capture) {
-      Sfx.play('chess_clash');
-      Sfx.play('chess_evaporate', delayMs: 1250);
+      final rookAttack = before.b[m.from].abs() == pRook;
+      Sfx.play('sword_draw', delayMs: 300);
+      Sfx.play('sword_clash', delayMs: 700);
+      Sfx.play('sword_clash', delayMs: 1040);
+      if (rookAttack) {
+        Sfx.play('rook_jump', delayMs: 1240);
+      } else {
+        Sfx.play('sword_hit', delayMs: 1230);
+        Sfx.play('chess_evaporate', delayMs: 1420);
+      }
     } else {
       Sfx.play('chess_move');
     }
