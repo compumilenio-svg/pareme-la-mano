@@ -38,6 +38,10 @@ jobs:
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - name: Pruebas del motor de ajedrez
         run: dart run tool/perft.dart
+      - name: Pruebas del motor de La Galleta
+        run: dart run tool/galleta_test.dart
+      - name: Pruebas del Bingo
+        run: dart run tool/bingo_test.dart
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
