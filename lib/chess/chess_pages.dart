@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import '../game_service.dart';
 import 'board3d.dart';
+import '../sfx.dart';
 import 'countries.dart';
 import 'engine.dart';
 
@@ -513,6 +514,12 @@ class _ChessMatchPageState extends State<ChessMatchPage>
     }
     final capture = before.b[m.to] != 0 || m.ep;
     if (capture) {
+      Sfx.play('chess_clash');
+      Sfx.play('chess_evaporate', delayMs: 1250);
+    } else {
+      Sfx.play('chess_move');
+    }
+    if (capture) {
       final defSq = m.ep ? (m.from ~/ 8) * 8 + m.to % 8 : m.to;
       setState(() {
         fight = FightInfo(
@@ -526,6 +533,7 @@ class _ChessMatchPageState extends State<ChessMatchPage>
       cur = after;
       last = m;
     });
+    if (cur.inCheck(cur.whiteToMove)) Sfx.play('chess_check', delayMs: 150);
     _checkEnd(cur);
     busy = false;
     if (!mounted) return;
@@ -557,6 +565,7 @@ class _ChessMatchPageState extends State<ChessMatchPage>
       final c = res == 'w' ? whiteC : blackC;
       final iWon = (res == 'w') == myWhite;
       who = iWon ? '¡Ganaste con ${c.name}!' : 'Ganó ${c.name}';
+      Sfx.play(iWon ? 'win' : 'lose', delayMs: 400);
     }
     setState(() => resultMsg = (why == null || why.isEmpty) ? who : '$who\n$why');
     WidgetsBinding.instance.addPostFrameCallback((_) {
