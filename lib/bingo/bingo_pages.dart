@@ -337,7 +337,8 @@ class _BingoRoomPageState extends State<BingoRoomPage>
   List<List<bool>> myMarks = [];
   int myRound = -1;
   bool claimed = false;
-  // Un número que salió y no se tachó en 20 s se pierde (se quita de la cartilla).
+  // Pasados 20 s de salir un número sin tacharlo, se quita el aviso naranja:
+  // el jugador debe revisar las bolas que salieron (castigo por distraerse).
   final Map<int, int> calledAt = {};
   static const int missMs = 20000;
 
@@ -370,7 +371,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
     return b;
   }
 
-  /// Salió hace más de 20 s (o antes de que entraras) y no está tachado.
+  /// Salió hace más de 20 s (o antes de que entraras): ya no se resalta.
   bool _missed(int n) {
     if (n == 0 || !shownBalls.contains(n)) return false;
     final at = calledAt[n];
@@ -591,14 +592,6 @@ class _BingoRoomPageState extends State<BingoRoomPage>
         ..showSnackBar(const SnackBar(
             duration: Duration(milliseconds: 900),
             content: Text('Ese número todavía no ha salido')));
-      return;
-    }
-    if (!myMarks[ci][idx] && _missed(n)) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-            duration: Duration(milliseconds: 1200),
-            content: Text('Se te pasó ese número: ya no se puede tachar')));
       return;
     }
     setState(() => myMarks[ci][idx] = !myMarks[ci][idx]);
@@ -1127,9 +1120,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
         decoration: BoxDecoration(
           color: free
               ? Colors.amber.shade200
-              : (missed
-                  ? Colors.grey.shade400
-                  : (shown ? const Color(0xFFFFF59D) : const Color(0xFFF5F5F5))),
+              : (shown ? const Color(0xFFFFF59D) : const Color(0xFFF5F5F5)),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
               color: called && !marked && !missed ? Colors.orange : Colors.black12,
@@ -1148,8 +1139,6 @@ class _BingoRoomPageState extends State<BingoRoomPage>
                           fontSize: cell * 0.18, fontWeight: FontWeight.bold)),
                 ],
               )
-            else if (missed)
-              Icon(Icons.block, size: cell * 0.4, color: Colors.black26)
             else
               Text('$n',
                   style: TextStyle(
