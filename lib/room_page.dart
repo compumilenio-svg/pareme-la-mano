@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'game_service.dart';
+import 'sfx.dart';
 
 class RoomPage extends StatefulWidget {
   final String code;
@@ -27,6 +28,8 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
   final Map<String, bool> myVotes = {};
   bool votedLocal = false;
   bool votingStarted = false;
+  String? _lastStatus;
+  int _lastSecs = -1;
 
   String get code => widget.code;
   bool get isHost => room?['hostId'] == svc.uid;
@@ -63,8 +66,32 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
     }
   }
 
+  void _statusSound(String st) {
+    switch (st) {
+      case 'playing':
+        Sfx.play('round_start');
+      case 'counting':
+        Sfx.play('alarm');
+      case 'voting':
+        Sfx.play('vote_start');
+      case 'finished':
+        Sfx.play('win');
+      case 'lobby':
+      case 'scoring':
+        break;
+      default:
+        Sfx.play('score');
+    }
+  }
+
   void _onRoom(Map<String, dynamic> data) {
     room = data;
+    final stNow = data['status'] as String;
+    if (stNow != _lastStatus) {
+      if (_lastStatus != null) _statusSound(stNow);
+      _lastStatus = stNow;
+      _lastSecs = -1;
+    }
     final round = data['round'] as int;
     if (data['status'] == 'playing' && round != loadedRound) {
       loadedRound = round;
@@ -141,6 +168,27 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
       if (now >= ends || allVoted) {
         scoringStarted = true;
         svc.scoreRound(code);
+      }
+    }
+    // Sonidos de la cuenta regresiva
+    int? secs;
+    var finalBuzz = false;
+    if (st == 'counting') {
+      secs = _secondsLeft(r['countdownEndsAt'] as int);
+      finalBuzz = true;
+    } else if (st == 'playing') {
+      final s = _secondsLeft(r['roundEndsAt'] as int);
+      if (s <= 10) secs = s;
+    } else if (st == 'voting') {
+      final s = _secondsLeft(r['votingEndsAt'] as int);
+      if (s <= 5) secs = s;
+    }
+    if (secs != null && secs != _lastSecs) {
+      _lastSecs = secs;
+      if (secs > 0) {
+        Sfx.play(st == 'counting' ? 'beep' : 'tick');
+      } else if (finalBuzz) {
+        Sfx.play('time_up');
       }
     }
     setState(() {});
