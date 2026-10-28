@@ -34,6 +34,10 @@ jobs:
           sed -i -E 's/android:label="[^"]*"/android:label="Noche de juegos"/' android/app/src/main/AndroidManifest.xml
 
       - run: flutter pub get
+      - name: Analizar código
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Pruebas del motor de ajedrez
+        run: dart run tool/perft.dart
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
