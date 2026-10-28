@@ -20,7 +20,7 @@ class ParemeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Juegos de cartas y palabras',
+      title: 'Noche de juegos',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorSchemeSeed: Colors.deepOrange,
@@ -37,7 +37,7 @@ class MenuPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Mis juegos')),
+      appBar: AppBar(title: const Text('Noche de juegos')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
