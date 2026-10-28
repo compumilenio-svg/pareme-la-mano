@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'bingo/bingo_pages.dart';
@@ -51,7 +52,8 @@ class MenuPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Noche de juegos'),
+        title: const Text('Noche de Juegos',
+            style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1)),
         actions: [
           ValueListenableBuilder<bool>(
             valueListenable: Sfx.enabled,
@@ -70,6 +72,8 @@ class MenuPage extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            const _TitleBanner(),
+            const SizedBox(height: 12),
             Card(
               child: ListTile(
                 leading: const Text('✋', style: TextStyle(fontSize: 32)),
@@ -254,6 +258,105 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+
+/// Título llamativo de la app: letras con degradado animado, brillo y juegos alrededor.
+class _TitleBanner extends StatefulWidget {
+  const _TitleBanner();
+  @override
+  State<_TitleBanner> createState() => _TitleBannerState();
+}
+
+class _TitleBannerState extends State<_TitleBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(seconds: 4))
+    ..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  Widget _word(String text, double size, double shift) {
+    return ShaderMask(
+      blendMode: BlendMode.srcIn,
+      shaderCallback: (r) => LinearGradient(
+        colors: const [
+          Color(0xFFFFEB3B),
+          Color(0xFFFF9800),
+          Color(0xFFFF4081),
+          Color(0xFFFFEB3B),
+        ],
+        stops: const [0.0, 0.35, 0.7, 1.0],
+        transform: GradientRotation(_c.value * 6.2832 + shift),
+      ).createShader(r),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: size,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 2,
+          height: 1.0,
+          shadows: const [
+            Shadow(color: Color(0xFF3E1A00), offset: Offset(0, 4), blurRadius: 0),
+            Shadow(color: Color(0xAAFFC107), blurRadius: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final bounce = 1 + 0.04 * sin(_c.value * 6.2832 * 2);
+        return Container(
+          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF1A237E), Color(0xFF6A1B9A), Color(0xFFAD1457)],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFFF9800)
+                    .withOpacity(0.35 + 0.25 * sin(_c.value * 6.2832)),
+                blurRadius: 22,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Transform.scale(
+                scale: bounce,
+                child: const Text('🎲  🃏  ♟️  🍪  🎱',
+                    style: TextStyle(fontSize: 26)),
+              ),
+              const SizedBox(height: 6),
+              _word('NOCHE', 46, 0),
+              const SizedBox(height: 2),
+              _word('DE JUEGOS', 40, 1.5),
+              const SizedBox(height: 6),
+              const Text('¡Reúne a tu gente y a jugar!',
+                  style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600)),
+            ],
+          ),
+        );
+      },
     );
   }
 }
