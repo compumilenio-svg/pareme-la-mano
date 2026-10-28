@@ -123,6 +123,11 @@ class _BoardView extends StatelessWidget {
         final f = fight!;
         final t = fightT.clamp(0.0, 1.0);
         final isRook = f.attacker.abs() == pRook;
+        final rookDef = f.defender.abs() == pRook;
+        // La torre no usa espada: si participa, no hay choques de espadas.
+        final hasClash = !isRook && !rookDef;
+        final go = isRook ? 0.25 : (hasClash ? 0.62 : 0.38);
+        final jEnd = go + 0.16;
         final a0 = _center(f.from);
         final tt = _center(f.to);
         final dd = _center(f.defSq);
@@ -131,7 +136,7 @@ class _BoardView extends StatelessWidget {
         final near = lerp(a0, tt, 0.70);
 
         // Fase de choques de espadas (t entre 0.28 y 0.62)
-        final inClash = t >= 0.28 && t < 0.62;
+        final inClash = hasClash && t >= 0.28 && t < 0.62;
         final k = inClash ? (t - 0.28) / 0.34 : 0.0;
         final swing = inClash ? sin(k * 2 * pi).abs() : 0.0;
         final sparkI = inClash ? max(0.0, (swing - 0.8) / 0.2) : 0.0;
@@ -142,24 +147,24 @@ class _BoardView extends StatelessWidget {
         double aLift = 0;
         if (t < 0.15) {
           aPos = lerp(a0, near, Curves.easeOut.transform(t / 0.15));
-        } else if (t < 0.62) {
+        } else if (t < go) {
           aPos = near;
         } else if (isRook) {
-          if (t < 0.78) {
-            final u = (t - 0.62) / 0.16;
+          if (t < jEnd) {
+            final u = (t - go) / 0.16;
             aPos = lerp(near, tt, Curves.easeIn.transform(u));
             aLift = sin(u * pi) * 1.7;
           } else {
             aPos = tt;
           }
         } else {
-          final u = ((t - 0.62) / 0.38).clamp(0.0, 1.0);
+          final u = ((t - go) / (1 - go)).clamp(0.0, 1.0);
           aPos = lerp(near, tt, Curves.easeOut.transform(u));
         }
         final aDraw = Offset(aPos.dx + shake, aPos.dy);
 
         // Caída del defensor
-        final deathStart = isRook ? 0.76 : 0.68;
+        final deathStart = isRook ? jEnd - 0.02 : go + 0.06;
         var dDraw = dd;
         double dOpacity = 1, dScale = 1, dLift = 0, dSquash = 1;
         if (inClash) dDraw = Offset(dd.dx - shake, dd.dy);
@@ -196,16 +201,17 @@ class _BoardView extends StatelessWidget {
         if (t > 0.15) {
           double theta(bool attacker) {
             if (inClash) return -0.3 + 1.2 * swing;
-            if (attacker && !isRook && t >= 0.62 && t < 0.72) return 1.4;
+            if (attacker && !isRook && t >= go && t < go + 0.1) return 1.4;
             return -0.6;
           }
 
           double aAlpha = draw, dAlpha = draw;
           if (isRook) {
-            if (t >= 0.62) aAlpha = 0;
+            aAlpha = 0;
           } else if (t > 0.85) {
             aAlpha = draw * (1 - (t - 0.85) / 0.1).clamp(0.0, 1.0);
           }
+          if (rookDef) dAlpha = 0;
           if (t >= deathStart) {
             dAlpha = draw * (1 - (t - deathStart) / 0.08).clamp(0.0, 1.0);
           }
@@ -221,9 +227,9 @@ class _BoardView extends StatelessWidget {
           if (sparkI > 0) {
             spark = Offset((pa.dx + pd.dx) / 2, (pa.dy + pd.dy) / 2 - 0.75 * sA);
             sparkPower = sparkI;
-          } else if (!isRook && t >= 0.62 && t < 0.72) {
+          } else if (!isRook && t >= go && t < go + 0.1) {
             spark = Offset(pd.dx, pd.dy - 0.6 * sD);
-            sparkPower = (1 - (t - 0.66).abs() / 0.04).clamp(0.0, 1.0);
+            sparkPower = (1 - (t - (go + 0.04)).abs() / 0.04).clamp(0.0, 1.0);
           }
           children.add(Positioned.fill(
             child: CustomPaint(

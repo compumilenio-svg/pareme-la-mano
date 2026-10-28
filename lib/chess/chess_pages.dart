@@ -515,12 +515,18 @@ class _ChessMatchPageState extends State<ChessMatchPage>
     final capture = before.b[m.to] != 0 || m.ep;
     if (capture) {
       final rookAttack = before.b[m.from].abs() == pRook;
-      Sfx.play('sword_draw', delayMs: 300);
-      Sfx.play('sword_clash', delayMs: 700);
-      Sfx.play('sword_clash', delayMs: 1040);
+      final rookDefend = before.b[m.to].abs() == pRook;
       if (rookAttack) {
-        Sfx.play('rook_jump', delayMs: 1240);
+        // La torre no usa espada: solo llega y salta encima.
+        Sfx.play('rook_jump', delayMs: 500);
+      } else if (rookDefend) {
+        Sfx.play('sword_draw', delayMs: 300);
+        Sfx.play('sword_hit', delayMs: 760);
+        Sfx.play('chess_evaporate', delayMs: 950);
       } else {
+        Sfx.play('sword_draw', delayMs: 300);
+        Sfx.play('sword_clash', delayMs: 700);
+        Sfx.play('sword_clash', delayMs: 1040);
         Sfx.play('sword_hit', delayMs: 1230);
         Sfx.play('chess_evaporate', delayMs: 1420);
       }
