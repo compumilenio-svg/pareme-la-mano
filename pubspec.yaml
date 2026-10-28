@@ -25,3 +25,4 @@ flutter:
   assets:
     - assets/chess/
     - assets/sounds/
+    - assets/music/
