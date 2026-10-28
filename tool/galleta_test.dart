@@ -18,23 +18,20 @@ void main() {
   }
 
   // Cuadro 2x2 a mano: el que cierra un cuadrito repite turno.
-  final sq = GalletaGame(1, 1, [true]);
-  expect(sq.usable.length == 4, 'un cuadrito tiene 4 rayas');
-  expect(sq.play(sq.usable[0]) == 0 && sq.turn == 2, 'cambia de turno');
-  expect(sq.play(sq.usable[1]) == 0 && sq.turn == 1, 'cambia de turno 2');
-  expect(sq.play(sq.usable[2]) == 0 && sq.turn == 2, 'cambia de turno 3');
-  expect(sq.play(sq.usable[3]) == 1 && sq.turn == 2, 'cierra y repite');
-  expect(sq.score2 == 1 && sq.over, 'puntaje y fin');
+  // El contorno ya viene dibujado: solo se juegan las rayas interiores.
+  final sq = GalletaGame(3, 1, [true, true, true]);
+  expect(sq.usable.length == 2, 'solo 2 rayas interiores');
+  expect(sq.border.length == 8, 'contorno de 8 rayas');
+  expect(!sq.isFree(sq.border[0]), 'el contorno no se puede jugar');
+  expect(sq.play(sq.usable[0]) == 1 && sq.turn == 1, 'cierra y repite');
+  expect(sq.play(sq.usable[1]) == 2 && sq.over, 'puntaje y fin');
+  expect(sq.score1 == 3, 'puntaje');
 
   // Una raya compartida puede cerrar dos cuadritos a la vez.
   final two = GalletaGame(2, 1, [true, true]);
-  // aristas: hor 0..3 (arriba 0,1; abajo 2,3), ver: 4,5,6
-  for (final e in [0, 1, 2, 3, 4, 6]) {
-    two.play(e);
-  }
-  final t = two.turn;
-  expect(two.play(5) == 2, 'doble cierre');
-  expect(two.turn == t && two.over, 'repite y termina');
+  expect(two.usable.length == 1, 'una sola raya interior');
+  expect(two.play(two.usable[0]) == 2, 'doble cierre');
+  expect(two.turn == 1 && two.over, 'repite y termina');
 
   // Partidas completas IA contra IA: legales, terminan y suman bien.
   final rng = Random(5);
