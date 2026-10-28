@@ -111,7 +111,7 @@ class GameService {
     name = playerName;
     code = code.trim().toUpperCase();
     final snap = await roomRef(code).get();
-    if (!snap.exists || snap.data()!['game'] == 'cuarenta') {
+    if (!snap.exists || snap.data()!['game'] != null) {
       return 'No existe una sala con ese código.';
     }
     final existing = await playersRef(code).doc(uid).get();

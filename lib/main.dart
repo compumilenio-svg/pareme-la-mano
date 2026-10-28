@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'chess/chess_pages.dart';
 import 'cuarenta/cuarenta_page.dart';
 import 'game_service.dart';
 import 'room_page.dart';
@@ -69,6 +70,17 @@ class MenuPage extends StatelessWidget {
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                       builder: (_) => const CuarentaSetupPage()),
+                ),
+              ),
+            ),
+            Card(
+              child: ListTile(
+                leading: const Text('♟️', style: TextStyle(fontSize: 32)),
+                title: const Text('Ajedrez de naciones'),
+                subtitle: const Text(
+                    'Tablero 3D, piezas de cada país · contra la PC o en línea'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ChessMenuPage()),
                 ),
               ),
             ),
