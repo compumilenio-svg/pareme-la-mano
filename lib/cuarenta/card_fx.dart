@@ -29,6 +29,24 @@ Widget playingCardFace(PCard c) => Container(
       ),
     );
 
+/// Reverso de carta (para el reparto).
+Widget playingCardBack() => Container(
+      width: fxCardW,
+      height: fxCardH,
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E3A8A),
+        border: Border.all(color: Colors.white, width: 3),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(color: Colors.black38, blurRadius: 6, offset: Offset(2, 3)),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: const Text('♠♥\n♦♣',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.white54, fontSize: 18, height: 1.0)),
+    );
+
 class FxGhost {
   final PCard card;
   final Rect rect;
@@ -43,6 +61,9 @@ class FxFlight {
   final List<FxGhost> ghosts; // cartas levantadas (ya no están en la mesa)
   final Rect? pile; // hacia dónde se retiran (null si solo se deja la carta)
   final Set<int> hide;
+  final bool faceDown; // reparto: se ve el reverso
+  final bool fadeOut; // se desvanece al llegar (cartas de otros jugadores)
+  final int flyDuration;
   FxFlight({
     required this.id,
     required this.card,
@@ -51,12 +72,16 @@ class FxFlight {
     required this.ghosts,
     required this.pile,
     required this.hide,
+    this.faceDown = false,
+    this.fadeOut = false,
+    this.flyDuration = flyMs,
   });
 
   static const int flyMs = 520;
   static const int holdMs = 320;
   static const int gatherMs = 520;
-  int get totalMs => pile == null ? flyMs : flyMs + holdMs + gatherMs;
+  int get totalMs =>
+      pile == null ? flyDuration : flyDuration + holdMs + gatherMs;
 }
 
 class FxOverlay extends StatelessWidget {
@@ -86,7 +111,7 @@ class _FlightView extends StatelessWidget {
   Offset _lerp(Offset a, Offset b, double u) =>
       Offset(a.dx + (b.dx - a.dx) * u, a.dy + (b.dy - a.dy) * u);
 
-  Widget _piece(PCard c, Offset center, double scale, double opacity, double angle) {
+  Widget _piece(Widget face, Offset center, double scale, double opacity, double angle) {
     return Positioned(
       left: center.dx - fxCardW / 2,
       top: center.dy - fxCardH / 2,
@@ -94,7 +119,7 @@ class _FlightView extends StatelessWidget {
         opacity: opacity.clamp(0.0, 1.0),
         child: Transform.rotate(
           angle: angle,
-          child: Transform.scale(scale: scale, child: playingCardFace(c)),
+          child: Transform.scale(scale: scale, child: face),
         ),
       ),
     );
@@ -112,14 +137,14 @@ class _FlightView extends StatelessWidget {
         final landing = f.pile == null
             ? f.to.center
             : f.to.center + const Offset(6, 6); // cae encima de la carta
-        final u1 = Curves.easeOutCubic.transform((ms / FxFlight.flyMs).clamp(0.0, 1.0));
+        final u1 = Curves.easeOutCubic.transform((ms / f.flyDuration).clamp(0.0, 1.0));
         var center = _lerp(f.from.center, landing, u1);
         var scale = 1.0 + 0.18 * sin(pi * u1); // se "levanta" al volar
         var opacity = 1.0;
         var angle = 0.2 * sin(pi * u1);
         double g = 0; // avance del retiro 0..1
         if (f.pile != null) {
-          final start = FxFlight.flyMs + FxFlight.holdMs;
+          final start = f.flyDuration + FxFlight.holdMs;
           if (ms > start) {
             g = Curves.easeInCubic.transform(((ms - start) / FxFlight.gatherMs).clamp(0.0, 1.0));
             center = _lerp(landing, f.pile!.center, g);
@@ -128,19 +153,25 @@ class _FlightView extends StatelessWidget {
             angle = 0.0;
           }
         }
+        if (f.fadeOut) {
+          final k = ((ms / f.flyDuration - 0.7) / 0.3).clamp(0.0, 1.0);
+          opacity = 1 - 0.85 * k;
+          scale *= 1 - 0.3 * k;
+        }
         return Stack(
           clipBehavior: Clip.none,
           children: [
             if (f.pile != null)
               for (final gh in f.ghosts)
                 _piece(
-                  gh.card,
+                  playingCardFace(gh.card),
                   _lerp(gh.rect.center, f.pile!.center, g),
                   1 - 0.45 * g,
                   1 - 0.7 * g,
                   0,
                 ),
-            _piece(f.card, center, scale, opacity, angle),
+            _piece(f.faceDown ? playingCardBack() : playingCardFace(f.card), center,
+                scale, opacity, angle),
           ],
         );
       },
@@ -159,6 +190,8 @@ mixin CardFx<T extends StatefulWidget> on State<T> {
   final Set<int> _hidden = {};
   final List<FxFlight> _flights = [];
   int? _seenSeq;
+  int? _prevTotal;
+  Set<int> _prevMyIds = {};
   int _flightCounter = 0;
 
   GlobalKey fxCardKey(int id) => _cardKeys.putIfAbsent(id, () => GlobalKey());
@@ -195,12 +228,25 @@ mixin CardFx<T extends StatefulWidget> on State<T> {
   void fxSync(CuarentaGame g, int mySeat) {
     final seq = g.moveSeq;
     final old = Map<int, Rect>.of(_rects);
+    var moveDelay = 0;
     if (_seenSeq == null || seq < _seenSeq!) {
       _seenSeq = seq;
     } else if (seq != _seenSeq) {
       _seenSeq = seq;
       _startFlight(g, mySeat, old);
+      moveDelay = g.lastCap.isEmpty ? FxFlight.flyMs : 1400;
     }
+    // Reparto: aparecen cartas nuevas en mi mano.
+    final myIds = {for (final c in g.hands[mySeat]) c.id};
+    final newIds = [
+      for (final c in g.hands[mySeat])
+        if (!_prevMyIds.contains(c.id)) c.id
+    ];
+    final first = _prevTotal == null;
+    final deal = first ? (seq == 0 && newIds.length >= 3) : newIds.length >= 3;
+    _prevTotal = g.hands.length;
+    _prevMyIds = myIds;
+    if (deal) _startDeal(g, mySeat, newIds, moveDelay);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _measure();
     });
@@ -263,6 +309,71 @@ mixin CardFx<T extends StatefulWidget> on State<T> {
           hide: hide,
         ));
       });
+    });
+  }
+
+  void _startDeal(CuarentaGame g, int mySeat, List<int> myNew, int delayMs) {
+    _hidden.addAll(myNew);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final srcRaw = g.dealer == mySeat
+          ? _rectOf(fxHandKey)
+          : _rectOf(fxSeatKey(g.dealer));
+      if (srcRaw == null) {
+        setState(() => _hidden.removeAll(myNew));
+        return;
+      }
+      final src = _asCard(srcRaw);
+      var idx = 0;
+      var mine = 0;
+      for (var round = 0; round < 5; round++) {
+        for (var k = 0; k < g.n; k++) {
+          final seat = (g.dealer + 1 + k) % g.n;
+          Rect? dest;
+          PCard card;
+          var hide = <int>{};
+          if (seat == mySeat) {
+            if (mine >= myNew.length) continue;
+            final id = myNew[mine++];
+            card = PCard.fromId(id);
+            dest = _rectOf(fxCardKey(id));
+            hide = {id};
+          } else {
+            card = PCard.fromId(1);
+            final r = _rectOf(fxSeatKey(seat));
+            dest = r == null ? null : _asCard(r);
+          }
+          final when = delayMs + idx * 95;
+          idx++;
+          final d = dest;
+          if (d == null) {
+            if (hide.isNotEmpty) {
+              Future<void>.delayed(Duration(milliseconds: when), () {
+                if (mounted) setState(() => _hidden.removeAll(hide));
+              });
+            }
+            continue;
+          }
+          Future<void>.delayed(Duration(milliseconds: when), () {
+            if (!mounted) return;
+            Sfx.play('card_play');
+            setState(() {
+              _flights.add(FxFlight(
+                id: _flightCounter++,
+                card: card,
+                from: src,
+                to: d,
+                ghosts: const [],
+                pile: null,
+                hide: hide,
+                faceDown: true,
+                fadeOut: seat != mySeat,
+                flyDuration: 380,
+              ));
+            });
+          });
+        }
+      }
     });
   }
 
