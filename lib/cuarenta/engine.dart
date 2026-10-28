@@ -88,6 +88,11 @@ class CuarentaGame {
   bool firstOfDeal = true;
   int? winnerTeam;
   final List<String> events = [];
+  // Última jugada (para animar las cartas)
+  int moveSeq = 0;
+  int lastSeat = -1;
+  int lastCard = 0;
+  List<int> lastCap = [];
 
   CuarentaGame(this.n, this.seatNames, this.teamNames, {Random? random})
       : rng = random ?? Random() {
@@ -113,6 +118,10 @@ class CuarentaGame {
     g.lastPlaced = j['last'] == null ? null : PCard.fromId(j['last'] as int);
     g.firstOfDeal = j['first'] as bool;
     g.winnerTeam = j['winner'] as int?;
+    g.moveSeq = (j['seq'] as int?) ?? 0;
+    g.lastSeat = (j['lseat'] as int?) ?? -1;
+    g.lastCard = (j['lcard'] as int?) ?? 0;
+    g.lastCap = [for (final i in ((j['lcap'] as List?) ?? const [])) i as int];
     return g;
   }
 
@@ -131,6 +140,10 @@ class CuarentaGame {
         'last': lastPlaced?.id,
         'first': firstOfDeal,
         'winner': winnerTeam,
+        'seq': moveSeq,
+        'lseat': lastSeat,
+        'lcard': lastCard,
+        'lcap': lastCap,
       };
 
   int teamOf(int seat) => n == 4 ? seat % 2 : seat;
@@ -261,6 +274,10 @@ class CuarentaGame {
     if (winnerTeam != null) return events;
     final seat = current;
     final team = teamOf(seat);
+    moveSeq++;
+    lastSeat = seat;
+    lastCard = m.card.id;
+    lastCap = [for (final c in m.captured) c.id];
     hands[seat].remove(m.card);
 
     if (!m.isCapture) {

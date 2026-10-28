@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'bot.dart';
 import 'engine.dart';
+import 'card_fx.dart';
 import 'online.dart';
 
 const rulesText = '''
@@ -193,7 +194,8 @@ class CuarentaGamePage extends StatefulWidget {
   State<CuarentaGamePage> createState() => _CuarentaGamePageState();
 }
 
-class _CuarentaGamePageState extends State<CuarentaGamePage> {
+class _CuarentaGamePageState extends State<CuarentaGamePage>
+    with CardFx<CuarentaGamePage> {
   late CuarentaGame g;
   late List<String> seatNames;
   final teamNames = const ['Nosotros', 'Ellos'];
@@ -222,7 +224,7 @@ class _CuarentaGamePageState extends State<CuarentaGamePage> {
   void _scheduleBot() {
     if (g.winnerTeam != null || g.current == 0) return;
     botTimer?.cancel();
-    botTimer = Timer(const Duration(milliseconds: 1000), () {
+    botTimer = Timer(const Duration(milliseconds: 1700), () {
       if (!mounted || g.winnerTeam != null || g.current == 0) return;
       _apply(chooseBotMove(g));
     });
@@ -314,9 +316,12 @@ class _CuarentaGamePageState extends State<CuarentaGamePage> {
   }
 
   Widget _cardView(PCard c, {VoidCallback? onTap}) {
-    return GestureDetector(
+    return Opacity(
+      opacity: fxHidden(c.id) ? 0 : 1,
+      child: GestureDetector(
       onTap: onTap,
       child: Container(
+        key: fxCardKey(c.id),
         width: 54,
         height: 78,
         margin: const EdgeInsets.all(3),
@@ -335,12 +340,14 @@ class _CuarentaGamePageState extends State<CuarentaGamePage> {
           ),
         ),
       ),
+    ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final myTurn = g.current == 0 && g.winnerTeam == null;
+    fxSync(g, 0);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Cuarenta'),
@@ -363,6 +370,10 @@ class _CuarentaGamePageState extends State<CuarentaGamePage> {
         ],
       ),
       body: SafeArea(
+        child: Stack(
+          key: fxStackKey,
+          children: [
+            Positioned.fill(
         child: Column(
           children: [
             Padding(
@@ -385,6 +396,7 @@ class _CuarentaGamePageState extends State<CuarentaGamePage> {
               children: [
                 for (var s = 1; s < widget.numPlayers; s++)
                   Chip(
+                    key: fxSeatKey(s),
                     backgroundColor:
                         g.current == s ? Colors.orange.shade200 : null,
                     label: Text('${seatNames[s]} (${g.hands[s].length})'),
@@ -417,6 +429,7 @@ class _CuarentaGamePageState extends State<CuarentaGamePage> {
               child: Text(myTurn ? 'Tu turno' : 'Esperando...'),
             ),
             Wrap(
+              key: fxHandKey,
               alignment: WrapAlignment.center,
               children: [
                 for (final c in g.hands[0])
@@ -424,6 +437,10 @@ class _CuarentaGamePageState extends State<CuarentaGamePage> {
               ],
             ),
             const SizedBox(height: 12),
+          ],
+        ),
+            ),
+            Positioned.fill(child: fxOverlay()),
           ],
         ),
       ),

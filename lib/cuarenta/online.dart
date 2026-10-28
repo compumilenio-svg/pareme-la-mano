@@ -6,6 +6,7 @@ import '../game_service.dart';
 import 'bot.dart';
 import 'cuarenta_page.dart' show rulesText;
 import 'engine.dart';
+import 'card_fx.dart';
 
 // Orden de asientos al repartir humanos: en 4 jugadores el segundo humano
 // queda de compañero (asiento 2) del anfitrión (asiento 0).
@@ -73,7 +74,8 @@ class CuarentaRoomPage extends StatefulWidget {
   State<CuarentaRoomPage> createState() => _CuarentaRoomPageState();
 }
 
-class _CuarentaRoomPageState extends State<CuarentaRoomPage> {
+class _CuarentaRoomPageState extends State<CuarentaRoomPage>
+    with CardFx<CuarentaRoomPage> {
   String get code => widget.code;
 
   // Solo el anfitrión usa esto (partida autoritativa).
@@ -188,7 +190,7 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage> {
     final g = hostGame;
     botTimer?.cancel();
     if (g == null || g.winnerTeam != null || _isHuman(g.current)) return;
-    botTimer = Timer(const Duration(milliseconds: 1200), () {
+    botTimer = Timer(const Duration(milliseconds: 1800), () {
       final g2 = hostGame;
       if (!mounted || g2 == null || g2.winnerTeam != null) return;
       if (_isHuman(g2.current)) return;
@@ -299,9 +301,12 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage> {
   }
 
   Widget _cardView(PCard c, {VoidCallback? onTap}) {
-    return GestureDetector(
+    return Opacity(
+      opacity: fxHidden(c.id) ? 0 : 1,
+      child: GestureDetector(
       onTap: onTap,
       child: Container(
+        key: fxCardKey(c.id),
         width: 54,
         height: 78,
         margin: const EdgeInsets.all(3),
@@ -320,6 +325,7 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage> {
           ),
         ),
       ),
+    ),
     );
   }
 
@@ -433,6 +439,7 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage> {
     if (mySeat < 0) {
       return const Center(child: Text('No estás en esta partida.'));
     }
+    fxSync(g, mySeat);
     final names = g.seatNames;
     final myTeam = g.teamOf(mySeat);
     final status = room!['status'];
@@ -444,7 +451,11 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage> {
       for (var i = 1; i < g.n; i++) (mySeat + i) % g.n,
     ];
 
-    return Column(
+    return Stack(
+      key: fxStackKey,
+      children: [
+        Positioned.fill(
+          child: Column(
       children: [
         Padding(
           padding: const EdgeInsets.all(12),
@@ -466,6 +477,7 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage> {
           children: [
             for (final s in others)
               Chip(
+                key: fxSeatKey(s),
                 backgroundColor: g.current == s ? Colors.orange.shade200 : null,
                 label: Text(
                     '${names[s]}${g.teamOf(s) == myTeam ? ' (compañero)' : ''} (${g.hands[s].length})'),
@@ -500,6 +512,7 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage> {
           child: Text(myTurn ? 'Tu turno' : 'Turno de ${names[g.current]}...'),
         ),
         Wrap(
+          key: fxHandKey,
           alignment: WrapAlignment.center,
           children: [
             for (final c in g.hands[mySeat])
@@ -508,6 +521,10 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage> {
           ],
         ),
         const SizedBox(height: 12),
+      ],
+    ),
+        ),
+        Positioned.fill(child: fxOverlay()),
       ],
     );
   }
