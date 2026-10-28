@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'bot.dart';
 import 'engine.dart';
+import 'online.dart';
 
 const rulesText = '''
 • Baraja de 52 sin 8, 9 y 10: quedan 40 cartas (A a 7, J, Q, K).
@@ -12,6 +13,7 @@ const rulesText = '''
 • Caída: 2. Limpia: 2. Caída y limpia juntas: 2.
 • Al terminar la mano, con 20 cartas: 6 puntos, y +1 por carta extra (si queda impar, sube al par).
 • Con 30 puntos o más ya no se cobra cartón.
+• En línea: crea una sala y comparte el código; en parejas, el segundo en entrar es el compañero del anfitrión.
 • Se gana la chica al llegar a 40. La grande es al mejor de 3 chicas.
 ''';
 
@@ -25,6 +27,58 @@ class CuarentaSetupPage extends StatefulWidget {
 class _CuarentaSetupPageState extends State<CuarentaSetupPage> {
   int players = 2;
   bool grande = false;
+  final nameCtrl = TextEditingController();
+  final codeCtrl = TextEditingController();
+  String? error;
+  bool loading = false;
+
+  Future<void> _createOnline() async {
+    final name = nameCtrl.text.trim();
+    if (name.isEmpty) return setState(() => error = 'Escribe tu nombre.');
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final code = await CuarentaOnline.create(name, players, grande);
+      _openRoom(code);
+    } catch (e) {
+      setState(() => error = 'No se pudo crear la sala: $e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> _joinOnline() async {
+    final name = nameCtrl.text.trim();
+    final code = codeCtrl.text.trim().toUpperCase();
+    if (name.isEmpty) return setState(() => error = 'Escribe tu nombre.');
+    if (code.length != 5) {
+      return setState(() => error = 'El código tiene 5 caracteres.');
+    }
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final err = await CuarentaOnline.join(code, name);
+      if (err != null) {
+        setState(() => error = err);
+      } else {
+        _openRoom(code);
+      }
+    } catch (e) {
+      setState(() => error = 'No se pudo entrar: $e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  void _openRoom(String code) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => CuarentaRoomPage(code: code)),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,8 +122,55 @@ class _CuarentaSetupPageState extends State<CuarentaSetupPage> {
                   builder: (_) =>
                       CuarentaGamePage(numPlayers: players, grande: grande),
                 )),
-                child: const Text('Jugar'),
+                child: const Text('Jugar contra bots'),
               ),
+              const Divider(height: 40),
+              const Text('Jugar en línea con otras personas',
+                  style: TextStyle(fontSize: 18)),
+              const SizedBox(height: 8),
+              const Text(
+                  'Usa el modo y el formato de arriba. Los asientos que no ocupe nadie los juegan bots.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nameCtrl,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  labelText: 'Tu nombre',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: loading ? null : _createOnline,
+                icon: const Icon(Icons.add),
+                label: const Text('Crear sala'),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: codeCtrl,
+                textCapitalization: TextCapitalization.characters,
+                maxLength: 5,
+                decoration: const InputDecoration(
+                  labelText: 'Código de sala',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: loading ? null : _joinOnline,
+                icon: const Icon(Icons.login),
+                label: const Text('Unirme a una sala'),
+              ),
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child:
+                      Text(error!, style: const TextStyle(color: Colors.red)),
+                ),
+              if (loading)
+                const Padding(
+                  padding: EdgeInsets.only(top: 12),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
               const SizedBox(height: 24),
               const Text('Reglas usadas', style: TextStyle(fontSize: 18)),
               const SizedBox(height: 8),

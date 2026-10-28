@@ -25,6 +25,10 @@ class PCard {
   const PCard(this.rank, this.suit);
 
   int get id => suit * 10 + rank;
+  static PCard fromId(int id) {
+    final suit = (id - 1) ~/ 10;
+    return PCard(id - suit * 10, suit);
+  }
   bool get summable => rank <= 7; // J, Q, K no se suman
   bool get isRed => suit == 1 || suit == 2;
 
@@ -90,6 +94,44 @@ class CuarentaGame {
     dealer = rng.nextInt(n);
     _newHand();
   }
+
+  CuarentaGame._raw(this.n, this.seatNames, this.teamNames) : rng = Random();
+
+  /// Reconstruye una partida desde el estado publicado por el anfitrión.
+  factory CuarentaGame.fromJson(int n, List<String> seatNames,
+      List<String> teamNames, Map<String, dynamic> j) {
+    List<PCard> cards(dynamic l) =>
+        [for (final i in (l as List)) PCard.fromId(i as int)];
+    final g = CuarentaGame._raw(n, seatNames, teamNames);
+    g.scores = List<int>.from(j['scores']);
+    g.dealer = j['dealer'] as int;
+    g.current = j['current'] as int;
+    g.hands = [for (final h in (j['hands'] as List)) cards(h)];
+    g.table = cards(j['table']);
+    g.won = [for (final w in (j['won'] as List)) cards(w)];
+    g.deck = cards(j['deck']);
+    g.lastPlaced = j['last'] == null ? null : PCard.fromId(j['last'] as int);
+    g.firstOfDeal = j['first'] as bool;
+    g.winnerTeam = j['winner'] as int?;
+    return g;
+  }
+
+  Map<String, dynamic> toJson() => {
+        'scores': scores,
+        'dealer': dealer,
+        'current': current,
+        'hands': [
+          for (final h in hands) [for (final c in h) c.id]
+        ],
+        'table': [for (final c in table) c.id],
+        'won': [
+          for (final w in won) [for (final c in w) c.id]
+        ],
+        'deck': [for (final c in deck) c.id],
+        'last': lastPlaced?.id,
+        'first': firstOfDeal,
+        'winner': winnerTeam,
+      };
 
   int teamOf(int seat) => n == 4 ? seat % 2 : seat;
 
