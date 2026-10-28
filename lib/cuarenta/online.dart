@@ -7,6 +7,7 @@ import 'bot.dart';
 import 'cuarenta_page.dart' show rulesText;
 import 'engine.dart';
 import 'card_fx.dart';
+import 'table_ui.dart';
 import '../sfx.dart';
 import '../music.dart';
 
@@ -486,21 +487,17 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
             ],
           ),
         ),
-        Wrap(
-          spacing: 8,
-          children: [
-            for (final s in others)
-              Chip(
-                key: fxSeatKey(s),
-                backgroundColor: g.current == s ? Colors.orange.shade200 : null,
-                label: Text(
-                    '${names[s]}${g.teamOf(s) == myTeam ? ' (compañero)' : ''} (${g.hands[s].length})'),
-              ),
-          ],
-        ),
         Expanded(
-          child: Center(
-            child: status == 'chica_end'
+          child: WoodTable(
+            others: [
+              for (final s in others)
+                SeatSpec(
+                    fxSeatKey(s),
+                    '${names[s]}${g.teamOf(s) == myTeam ? ' (compañero)' : ''}',
+                    g.hands[s].length,
+                    g.current == s),
+            ],
+            center: status == 'chica_end'
                 ? _chicaEnd(g, myTeam, wins)
                 : g.table.isEmpty
                     ? const Text('Mesa vacía')
@@ -547,9 +544,16 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
     final w = g.winnerTeam!;
     final matchOver = room!['matchOver'] as bool;
     final grande = room!['grande'] as bool;
-    return Padding(
+    return Container(
+      margin: const EdgeInsets.all(12),
       padding: const EdgeInsets.all(16),
-      child: Column(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.92),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: DefaultTextStyle.merge(
+        style: const TextStyle(color: Colors.black87),
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(w == myTeam ? '¡Ganaron ustedes!' : 'Ganaron los rivales',
@@ -572,6 +576,7 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
           else
             const Text('Esperando al anfitrión...'),
         ],
+      ),
       ),
     );
   }

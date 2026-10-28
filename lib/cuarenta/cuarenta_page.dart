@@ -6,6 +6,7 @@ import 'card_fx.dart';
 import '../sfx.dart';
 import '../music.dart';
 import 'online.dart';
+import 'table_ui.dart';
 
 const rulesText = '''
 • Baraja de 52 sin 8, 9 y 10: quedan 40 cartas (A a 7, J, Q, K).
@@ -397,21 +398,14 @@ class _CuarentaGamePageState extends State<CuarentaGamePage>
                 ],
               ),
             ),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (var s = 1; s < widget.numPlayers; s++)
-                  Chip(
-                    key: fxSeatKey(s),
-                    backgroundColor:
-                        g.current == s ? Colors.orange.shade200 : null,
-                    label: Text('${seatNames[s]} (${g.hands[s].length})'),
-                  ),
-              ],
-            ),
             Expanded(
-              child: Center(
-                child: g.table.isEmpty
+              child: WoodTable(
+                others: [
+                  for (var s = 1; s < widget.numPlayers; s++)
+                    SeatSpec(fxSeatKey(s), seatNames[s], g.hands[s].length,
+                        g.current == s),
+                ],
+                center: g.table.isEmpty
                     ? const Text('Mesa vacía')
                     : Wrap(
                         alignment: WrapAlignment.center,
