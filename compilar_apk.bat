@@ -2,7 +2,7 @@
 chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
-echo === Compilando Pareme la mano / Cuarenta ===
+echo === Compilando Noche de juegos ===
 
 where flutter >nul 2>nul
 if errorlevel 1 (
