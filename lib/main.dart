@@ -1,7 +1,9 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'bingo/bingo_pages.dart';
 import 'chess/chess_pages.dart';
 import 'cuarenta/cuarenta_page.dart';
+import 'galleta/galleta_pages.dart';
 import 'game_service.dart';
 import 'room_page.dart';
 import 'sfx.dart';
@@ -97,6 +99,28 @@ class MenuPage extends StatelessWidget {
                     'Tablero 3D, piezas de cada país · contra la PC o en línea'),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const ChessMenuPage()),
+                ),
+              ),
+            ),
+            Card(
+              child: ListTile(
+                leading: const Text('🍪', style: TextStyle(fontSize: 32)),
+                title: const Text('La Galleta'),
+                subtitle: const Text(
+                    'Timbiriche: une puntos y llena cuadritos · vs PC o en línea'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const GalletaMenuPage()),
+                ),
+              ),
+            ),
+            Card(
+              child: ListTile(
+                leading: const Text('🎱', style: TextStyle(fontSize: 32)),
+                title: const Text('Bingo'),
+                subtitle: const Text(
+                    'Bot cantor con voz · cartillas, premio y bolas en vivo · en línea'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const BingoMenuPage()),
                 ),
               ),
             ),
