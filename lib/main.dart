@@ -4,11 +4,20 @@ import 'cuarenta/cuarenta_page.dart';
 import 'game_service.dart';
 import 'room_page.dart';
 
+// Configuración de Firebase (proyecto "Noche de juegos").
+const firebaseOptions = FirebaseOptions(
+  apiKey: 'AIzaSyBX3CI9jMar84VqDp0dOLvgy5nQJLxyblY',
+  appId: '1:193388031430:android:ff899dda0f13aec56d56c7',
+  messagingSenderId: '193388031430',
+  projectId: 'noche-de-juegos-99b2e',
+  storageBucket: 'noche-de-juegos-99b2e.firebasestorage.app',
+);
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Si Firebase aún no está configurado, el Cuarenta (sin conexión) igual funciona.
   try {
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(options: firebaseOptions);
     await svc.signIn();
   } catch (_) {}
   runApp(const ParemeApp());
