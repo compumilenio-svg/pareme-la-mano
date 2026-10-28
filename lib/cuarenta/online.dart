@@ -7,6 +7,7 @@ import 'bot.dart';
 import 'cuarenta_page.dart' show rulesText;
 import 'engine.dart';
 import 'card_fx.dart';
+import '../sfx.dart';
 
 // Orden de asientos al repartir humanos: en 4 jugadores el segundo humano
 // queda de compañero (asiento 2) del anfitrión (asiento 0).
@@ -85,6 +86,7 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
   int wins0 = 0;
   int wins1 = 0;
   Timer? botTimer;
+  bool _endSounded = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? playersSub;
   Map<String, dynamic>? room;
 
@@ -440,6 +442,14 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
       return const Center(child: Text('No estás en esta partida.'));
     }
     fxSync(g, mySeat);
+    if (room!['status'] == 'chica_end') {
+      if (!_endSounded) {
+        _endSounded = true;
+        Sfx.play(g.winnerTeam == g.teamOf(mySeat) ? 'win' : 'lose', delayMs: 900);
+      }
+    } else {
+      _endSounded = false;
+    }
     final names = g.seatNames;
     final myTeam = g.teamOf(mySeat);
     final status = room!['status'];

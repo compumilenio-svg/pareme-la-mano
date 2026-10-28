@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'bot.dart';
 import 'engine.dart';
 import 'card_fx.dart';
+import '../sfx.dart';
 import 'online.dart';
 
 const rulesText = '''
@@ -255,6 +256,7 @@ class _CuarentaGamePageState extends State<CuarentaGamePage>
       wins1++;
     }
     final matchOver = !widget.grande || wins0 >= 2 || wins1 >= 2;
+    Sfx.play(w == 0 ? 'win' : 'lose', delayMs: 900);
     final title = w == 0 ? '¡Ganaron ustedes!' : 'Ganaron los rivales';
     final body = widget.grande
         ? 'Chicas: Nosotros $wins0 - Ellos $wins1'

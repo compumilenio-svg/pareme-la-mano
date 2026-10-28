@@ -93,6 +93,7 @@ class CuarentaGame {
   int lastSeat = -1;
   int lastCard = 0;
   List<int> lastCap = [];
+  bool lastBonus = false; // caída o limpia en la última jugada
 
   CuarentaGame(this.n, this.seatNames, this.teamNames, {Random? random})
       : rng = random ?? Random() {
@@ -121,6 +122,7 @@ class CuarentaGame {
     g.moveSeq = (j['seq'] as int?) ?? 0;
     g.lastSeat = (j['lseat'] as int?) ?? -1;
     g.lastCard = (j['lcard'] as int?) ?? 0;
+    g.lastBonus = (j['lbonus'] as bool?) ?? false;
     g.lastCap = [for (final i in ((j['lcap'] as List?) ?? const [])) i as int];
     return g;
   }
@@ -144,6 +146,7 @@ class CuarentaGame {
         'lseat': lastSeat,
         'lcard': lastCard,
         'lcap': lastCap,
+        'lbonus': lastBonus,
       };
 
   int teamOf(int seat) => n == 4 ? seat % 2 : seat;
@@ -278,6 +281,7 @@ class CuarentaGame {
     lastSeat = seat;
     lastCard = m.card.id;
     lastCap = [for (final c in m.captured) c.id];
+    lastBonus = false;
     hands[seat].remove(m.card);
 
     if (!m.isCapture) {
@@ -293,6 +297,7 @@ class CuarentaGame {
         ..add(m.card);
       lastPlaced = null;
       final limpia = table.isEmpty;
+      lastBonus = caida || limpia;
       if (caida && limpia) {
         _addPoints(team, pointsCaidaLimpia, 'por caída y limpia');
       } else if (caida) {

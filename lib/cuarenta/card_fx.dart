@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'engine.dart';
+import '../sfx.dart';
 
 const double fxCardW = 54;
 const double fxCardH = 78;
@@ -244,6 +245,12 @@ mixin CardFx<T extends StatefulWidget> on State<T> {
       if (start == null || to == null || (cap.isNotEmpty && pile == null)) {
         setState(() => _hidden.removeAll(hide));
         return;
+      }
+      Sfx.play('card_play');
+      Sfx.play(cap.isEmpty ? 'card_place' : (g.lastBonus ? 'bonus' : 'card_place'),
+          delayMs: FxFlight.flyMs - 60);
+      if (cap.isNotEmpty) {
+        Sfx.play('capture', delayMs: FxFlight.flyMs + FxFlight.holdMs);
       }
       setState(() {
         _flights.add(FxFlight(
