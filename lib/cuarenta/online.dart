@@ -8,6 +8,7 @@ import 'cuarenta_page.dart' show rulesText;
 import 'engine.dart';
 import 'card_fx.dart';
 import '../sfx.dart';
+import '../music.dart';
 
 // Orden de asientos al repartir humanos: en 4 jugadores el segundo humano
 // queda de compañero (asiento 2) del anfitrión (asiento 0).
@@ -96,12 +97,14 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
   void initState() {
     super.initState();
     playersSub = svc.playersStream(code).listen(_onPlayers);
+    Ambient.start('cuarenta_ambiente');
   }
 
   @override
   void dispose() {
     botTimer?.cancel();
     playersSub?.cancel();
+    Ambient.stop();
     super.dispose();
   }
 
@@ -339,6 +342,7 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
       appBar: AppBar(
         title: Text('Cuarenta · Sala $code'),
         actions: [
+          const MusicButton(),
           IconButton(
             icon: const Icon(Icons.info_outline),
             onPressed: () => showDialog<void>(

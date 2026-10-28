@@ -4,6 +4,7 @@ import 'bot.dart';
 import 'engine.dart';
 import 'card_fx.dart';
 import '../sfx.dart';
+import '../music.dart';
 import 'online.dart';
 
 const rulesText = '''
@@ -214,11 +215,13 @@ class _CuarentaGamePageState extends State<CuarentaGamePage>
     g = CuarentaGame(widget.numPlayers, seatNames, teamNames);
     log.addAll(g.events);
     _scheduleBot();
+    Ambient.start('cuarenta_ambiente');
   }
 
   @override
   void dispose() {
     botTimer?.cancel();
+    Ambient.stop();
     super.dispose();
   }
 
@@ -354,6 +357,7 @@ class _CuarentaGamePageState extends State<CuarentaGamePage>
       appBar: AppBar(
         title: const Text('Cuarenta'),
         actions: [
+          const MusicButton(),
           IconButton(
             icon: const Icon(Icons.info_outline),
             onPressed: () => showDialog<void>(
