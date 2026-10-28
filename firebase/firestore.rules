@@ -1,0 +1,17 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{room} {
+      allow read, create: if request.auth != null;
+      allow update: if request.auth != null;
+      match /players/{uid} {
+        allow read: if request.auth != null;
+        // Cada jugador crea/edita su propio documento.
+        allow create, update: if request.auth != null && request.auth.uid == uid;
+        // El anfitrión necesita actualizar a todos (puntajes y reinicio de ronda).
+        allow update: if request.auth != null
+          && get(/databases/$(database)/documents/rooms/$(room)).data.hostId == request.auth.uid;
+      }
+    }
+  }
+}
