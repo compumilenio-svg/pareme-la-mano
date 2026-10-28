@@ -30,11 +30,13 @@ jobs:
           sed -i -E 's/minSdk\s*=\s*flutter\.minSdkVersion/minSdk = 23/; s/minSdkVersion\s+flutter\.minSdkVersion/minSdkVersion 23/' android/app/build.gradle* || true
           # Bloquea la pantalla dividida (anti-trampa)
           sed -i 's/<activity/<activity android:resizeableActivity="false"/' android/app/src/main/AndroidManifest.xml
+          # Nombre visible de la app
+          sed -i -E 's/android:label="[^"]*"/android:label="Noche de juegos"/' android/app/src/main/AndroidManifest.xml
 
       - run: flutter pub get
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
         with:
-          name: apk-pareme-la-mano
+          name: apk-noche-de-juegos
           path: build/app/outputs/flutter-apk/app-release.apk
