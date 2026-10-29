@@ -17,6 +17,7 @@ const englishCategory = 'Palabra o verbo en inglés';
 const categoriesPerRound = 6; // + la categoría fija en inglés
 const voteSeconds = 30;
 const roundSeconds = 90;
+const tombolaMs = 4500; // la tómbola de letras gira antes de empezar a escribir
 const countdownSeconds = 10;
 const totalRounds = 10;
 const maxPlayers = 8;
@@ -154,7 +155,7 @@ class GameService {
       'letter': letter,
       'categories': [...cats.take(categoriesPerRound), englishCategory],
       'usedLetters': FieldValue.arrayUnion([letter]),
-      'roundEndsAt': nowMs() + roundSeconds * 1000,
+      'roundEndsAt': nowMs() + roundSeconds * 1000 + tombolaMs,
       'countdownEndsAt': 0,
       'countdownBy': '',
       'votingEndsAt': 0,

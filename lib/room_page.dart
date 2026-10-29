@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'basta_sheet.dart';
 import 'game_service.dart';
 import 'sfx.dart';
 
@@ -30,6 +31,10 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
   bool votingStarted = false;
   String? _lastStatus;
   int _lastSecs = -1;
+  bool drawing = false; // la tómbola está girando
+  bool letterShown = true;
+  final GlobalKey letterKey = GlobalKey();
+  final ScrollController hScroll = ScrollController();
 
   String get code => widget.code;
   bool get isHost => room?['hostId'] == svc.uid;
@@ -48,6 +53,7 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
     ticker?.cancel();
     debounce?.cancel();
     playersSub?.cancel();
+    hScroll.dispose();
     for (final c in ctrls.values) {
       c.dispose();
     }
@@ -103,6 +109,12 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
       cheatedLocal = false;
       myVotes.clear();
       votedLocal = false;
+      // Solo giro la tómbola si la ronda acaba de empezar (no al reentrar).
+      final startedAt = (data['roundEndsAt'] as int) - roundSeconds * 1000 - tombolaMs;
+      final fresh = nowMs() - startedAt < 7000;
+      drawing = fresh;
+      letterShown = !fresh;
+      if (hScroll.hasClients) hScroll.jumpTo(0);
       for (final c in ctrls.values) {
         c.dispose();
       }
@@ -297,68 +309,100 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
     final secs = counting
         ? _secondsLeft(r['countdownEndsAt'] as int)
         : _secondsLeft(r['roundEndsAt'] as int);
-    final locked = submittedLocal || (counting && secs == 0);
-    return Column(
+    final locked = submittedLocal || (counting && secs == 0) || drawing;
+    final shown = counting ? secs : (secs > roundSeconds ? roundSeconds : secs);
+    final cats = ctrls.keys.toList();
+    return Stack(
       children: [
-        if (counting)
-          Container(
-            width: double.infinity,
-            color: Colors.red,
-            padding: const EdgeInsets.all(12),
-            child: Text(
-              '✋ ¡PÁREME LA MANO! (${r['countdownBy']})  —  $secs',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold),
-            ),
-          ),
-        if (cheatedLocal)
-          Container(
-            width: double.infinity,
-            color: Colors.orange,
-            padding: const EdgeInsets.all(8),
-            child: const Text(
-              'Saliste de la app: esta ronda vale 0 puntos.',
-              textAlign: TextAlign.center,
-            ),
-          ),
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Ronda ${r['round']}/${r['totalRounds']}'),
-              Text(letter,
+        Column(
+          children: [
+            if (counting)
+              Container(
+                width: double.infinity,
+                color: Colors.red,
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  '✋ ¡PÁREME LA MANO! (${r['countdownBy']})  —  $secs',
+                  textAlign: TextAlign.center,
                   style: const TextStyle(
-                      fontSize: 56, fontWeight: FontWeight.bold)),
-              Text(counting ? '' : '⏱ $secs s',
-                  style: const TextStyle(fontSize: 20)),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            children: [
-              for (final e in ctrls.entries)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: TextField(
-                    controller: e.value,
-                    enabled: !locked,
-                    onChanged: _onChanged,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: InputDecoration(
-                      labelText: e.key,
-                      border: const OutlineInputBorder(),
-                    ),
-                  ),
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold),
                 ),
-            ],
-          ),
+              ),
+            if (cheatedLocal)
+              Container(
+                width: double.infinity,
+                color: Colors.orange,
+                padding: const EdgeInsets.all(8),
+                child: const Text(
+                  'Saliste de la app: esta ronda vale 0 puntos.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            Expanded(
+              child: LinedPaper(
+                child: ListView(
+                  padding: const EdgeInsets.only(top: 10, bottom: 24),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(50, 4, 16, 6),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Ronda ${r['round']}/${r['totalRounds']}',
+                              style: const TextStyle(
+                                  fontFamily: kHandFont,
+                                  fontSize: 24,
+                                  color: Color(0xFF101010))),
+                          Text(counting || drawing ? '' : '⏱ $shown s',
+                              style: const TextStyle(
+                                  fontFamily: kHandFont,
+                                  fontSize: 26,
+                                  color: Color(0xFF101010))),
+                        ],
+                      ),
+                    ),
+                    SketchTable(
+                      cats: cats,
+                      letter: letter,
+                      letterShown: letterShown,
+                      ctrls: ctrls,
+                      locked: locked,
+                      onChanged: _onChanged,
+                      letterKey: letterKey,
+                      scroll: hScroll,
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(50, 8, 16, 0),
+                      child: Text(
+                        'Escribe en cada casilla una palabra que empiece con la letra.',
+                        style: TextStyle(
+                            fontFamily: kHandFont,
+                            fontSize: 18,
+                            color: Color(0xFF455A64)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
+        if (drawing)
+          Positioned.fill(
+            child: LetterTombola(
+              letter: letter,
+              allLetters: letters,
+              targetKey: letterKey,
+              onDone: () {
+                if (mounted) setState(() {
+                  drawing = false;
+                  letterShown = true;
+                });
+              },
+            ),
+          ),
       ],
     );
   }
