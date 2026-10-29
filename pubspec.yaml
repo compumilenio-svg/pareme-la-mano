@@ -26,3 +26,7 @@ flutter:
     - assets/chess/
     - assets/sounds/
     - assets/music/
+  fonts:
+    - family: PatrickHand
+      fonts:
+        - asset: assets/fonts/PatrickHand-Regular.ttf
