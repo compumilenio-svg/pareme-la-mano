@@ -289,7 +289,9 @@ class _GalletaMatchPageState extends State<GalletaMatchPage>
   String shapeId = 'galleta';
   int sizeIdx = 1;
   bool gameBuilt = false;
-  int sentN = 0; // jugadas ya enviadas por mí
+  final List<int> localMoves = []; // jugadas aplicadas aquí, en orden
+  int pending = 0; // mis jugadas enviadas que el servidor aún no confirma
+  Future<void> _sendChain = Future<void>.value();
 
   _Mode get mode => widget.mode;
   bool get online => mode == _Mode.online;
@@ -356,18 +358,42 @@ class _GalletaMatchPageState extends State<GalletaMatchPage>
         gameBuilt = true;
       }
     });
-    final moves = List<int>.from(d['moves'] as List);
-    if (moves.length > g.moveCount) {
-      for (var i = g.moveCount; i < moves.length; i++) {
-        if (g.isFree(moves[i])) _apply(moves[i], fromRemote: true);
+    // Mientras mis jugadas se confirman no toco el tablero con datos viejos.
+    if (pending > 0) return;
+    _reconcile(List<int>.from(d['moves'] as List));
+  }
+
+  /// Deja el tablero igual a la lista de jugadas del servidor.
+  void _reconcile(List<int> moves) {
+    var prefix = moves.length >= localMoves.length;
+    if (prefix) {
+      for (var i = 0; i < localMoves.length; i++) {
+        if (moves[i] != localMoves[i]) {
+          prefix = false;
+          break;
+        }
       }
-      _checkEnd();
-    } else if (moves.length < g.moveCount && sentN <= moves.length) {
-      // El servidor no tiene mis jugadas locales: resincroniza.
-      setState(() {
-        g = GalletaGame.replay(shapeId, sizeIdx, moves);
-      });
     }
+    if (prefix) {
+      for (var i = localMoves.length; i < moves.length; i++) {
+        if (!g.isFree(moves[i])) {
+          prefix = false;
+          break;
+        }
+        _apply(moves[i], fromRemote: true);
+      }
+    }
+    if (!prefix) _replayFrom(moves);
+    _checkEnd();
+  }
+
+  void _replayFrom(List<int> moves) {
+    setState(() {
+      g = GalletaGame.replay(shapeId, sizeIdx, moves);
+      localMoves
+        ..clear()
+        ..addAll(moves);
+    });
   }
 
   // ---------------- Jugar ----------------
@@ -388,6 +414,7 @@ class _GalletaMatchPageState extends State<GalletaMatchPage>
 
   void _apply(int e, {bool fromRemote = false}) {
     final done = g.play(e);
+    localMoves.add(e);
     if (done > 0) {
       _popCells
         ..clear()
@@ -407,19 +434,26 @@ class _GalletaMatchPageState extends State<GalletaMatchPage>
     if (!_myTurn || !g.isFree(e)) return;
     _apply(e);
     if (online) {
-      sentN = g.moveCount;
+      final expected = g.moveCount - 1;
       final finished = g.over;
-      GalletaOnline.sendMove(code, e, g.moveCount - 1, finished).then((ok) {
-        if (!ok && mounted) {
+      pending++;
+      // Las jugadas se envían una tras otra, en orden (al cerrar un cuadrito
+      // se juega otra vez enseguida y no deben pisarse).
+      _sendChain = _sendChain
+          .then((_) => GalletaOnline.sendMove(code, e, expected, finished))
+          .then((ok) async {
+        if (!ok) {
           // Choque de jugadas: vuelve a la posición del servidor.
-          svc.roomRef(code).get().then((s) {
-            if (!mounted || !s.exists) return;
-            final moves = List<int>.from(s.data()!['moves'] as List);
-            setState(() {
-              g = GalletaGame.replay(shapeId, sizeIdx, moves);
-              sentN = g.moveCount;
-            });
-          });
+          final s = await svc.roomRef(code).get(const GetOptions(source: Source.server));
+          if (mounted && s.exists) {
+            _replayFrom(List<int>.from(s.data()!['moves'] as List));
+          }
+        }
+      }).catchError((_) {}).whenComplete(() {
+        pending--;
+        if (pending <= 0 && mounted && room != null) {
+          pending = 0;
+          _reconcile(List<int>.from(room!['moves'] as List));
         }
       });
     }
@@ -483,6 +517,7 @@ class _GalletaMatchPageState extends State<GalletaMatchPage>
                   Navigator.pop(ctx);
                   setState(() {
                     g = GalletaGame.shape(shapeId, sizeIdx);
+                    localMoves.clear();
                     endShown = false;
                     _popCells.clear();
                   });
