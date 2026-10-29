@@ -42,7 +42,7 @@ class BingoOnline {
       'priceCents': priceCents,
       'balls': <int>[],
       'paused': false,
-      'speed': 6,
+      'speed': 7,
       'round': 1,
       'winnerId': '',
       'winnerName': '',
@@ -343,7 +343,12 @@ class _BingoRoomPageState extends State<BingoRoomPage>
   static const int missMs = 20000;
 
   // Bolas
-  int seenBalls = -1;
+  // Cola de bolas: cada una hace su ritual completo (tómbola, bola, voz) y la
+  // siguiente espera su turno, así audio e imagen nunca se desfasan.
+  int settled = -1; // bolas ya cantadas y mostradas
+  bool announcing = false;
+  Timer? ritualTimer;
+  static const int ritualMs = 4200;
   late final AnimationController _ballAnim;
   bool voiceOn = true;
   String? lastStatus;
@@ -364,11 +369,19 @@ class _BingoRoomPageState extends State<BingoRoomPage>
   /// Bolas ya reveladas: la última no se muestra hasta que sale de la tómbola.
   List<int> get shownBalls {
     final b = balls;
-    if (b.isNotEmpty && seenBalls == b.length && _ballAnim.isAnimating &&
-        _ballAnim.value < 0.55) {
-      return b.sublist(0, b.length - 1);
-    }
-    return b;
+    if (settled < 0) return b;
+    var n = settled;
+    if (announcing && _ballAnim.value >= 0.55) n++;
+    return b.sublist(0, min(n, b.length));
+  }
+
+  /// Bola que se muestra en grande (la que se está cantando o la última cantada).
+  int? get bigBallNumber {
+    final b = balls;
+    if (settled < 0) return b.isEmpty ? null : b.last;
+    final i = announcing ? settled : settled - 1;
+    if (i < 0 || i >= b.length) return null;
+    return b[i];
   }
 
   /// Salió hace más de 20 s (o antes de que entraras): ya no se resalta.
@@ -397,6 +410,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
     roomSub?.cancel();
     playersSub?.cancel();
     drawTimer?.cancel();
+    ritualTimer?.cancel();
     debounce?.cancel();
     _ballAnim.dispose();
     prizeCtrl.dispose();
@@ -426,28 +440,19 @@ class _BingoRoomPageState extends State<BingoRoomPage>
     final st = d['status'] as String;
     lastStatus = st;
 
-    // Nueva bola
+    // Nuevas bolas: entran en la cola y se cantan de una en una
     final b = List<int>.from((d['balls'] as List?) ?? const []);
-    if (seenBalls < 0) {
-      seenBalls = b.length; // al entrar no se cantan las bolas anteriores
+    if (settled < 0) {
+      settled = b.length; // al entrar no se cantan las bolas anteriores
       if (b.isNotEmpty) _ballAnim.value = 1;
-    } else if (b.length > seenBalls) {
-      seenBalls = b.length;
-      _ballAnim.forward(from: 0);
-      Sfx.play('tombola');
-      Sfx.play('ball', delayMs: 1500);
-      final n = b.last;
-      calledAt[n] = nowMs() + 1550;
-      Timer(const Duration(milliseconds: 1550 + missMs + 150), () {
-        if (mounted) setState(() {});
-      });
-      Future<void>.delayed(const Duration(milliseconds: 1550), () {
-        if (mounted && voiceOn) BingoVoice.say('${bingoLetter(n)}, $n');
-      });
-    } else if (b.length < seenBalls) {
-      seenBalls = b.length;
+    } else if (b.length < settled) {
+      settled = b.length;
+      announcing = false;
+      ritualTimer?.cancel();
       calledAt.clear();
       _ballAnim.value = 0;
+    } else {
+      _pump();
     }
 
     // Nueva partida: las cartillas se renuevan
@@ -476,6 +481,39 @@ class _BingoRoomPageState extends State<BingoRoomPage>
       finishedShown = true;
       _onFinished(d);
     }
+  }
+
+  void _pump() {
+    if (!mounted || announcing) return;
+    final b = balls;
+    if (settled < 0 || settled >= b.length) return;
+    // Si llegaron varias juntas (app en segundo plano), las viejas pasan de
+    // golpe y solo se canta la última.
+    if (b.length - settled > 1) settled = b.length - 1;
+    announcing = true;
+    final n = b[settled];
+    _ballAnim.forward(from: 0);
+    Sfx.play('tombola');
+    Sfx.play('ball', delayMs: 1500);
+    calledAt[n] = nowMs() + 1550;
+    Timer(const Duration(milliseconds: 1550 + missMs + 150), () {
+      if (mounted) setState(() {});
+    });
+    Future<void>.delayed(const Duration(milliseconds: 1550), () {
+      if (mounted && voiceOn && announcing && settled < balls.length && balls[settled] == n) {
+        BingoVoice.say('${bingoLetter(n)}, $n');
+      }
+    });
+    ritualTimer?.cancel();
+    ritualTimer = Timer(const Duration(milliseconds: ritualMs), () {
+      if (!mounted) return;
+      setState(() {
+        settled++;
+        announcing = false;
+      });
+      _pump();
+    });
+    setState(() {});
   }
 
   void _onFinished(Map<String, dynamic> d) {
@@ -632,7 +670,8 @@ class _BingoRoomPageState extends State<BingoRoomPage>
 
   void _startDrawing() {
     drawTimer?.cancel();
-    final speed = (room?['speed'] as int?) ?? 6;
+    // Nunca más rápido que lo que dura el ritual de cada bola.
+    final speed = max(5, (room?['speed'] as int?) ?? 7);
     drawTimer = Timer.periodic(Duration(seconds: speed), (_) => _drawBall());
     Future<void>.delayed(const Duration(seconds: 2), () {
       if (mounted && drawTimer != null && hostBalls.isEmpty) _drawBall();
@@ -698,7 +737,9 @@ class _BingoRoomPageState extends State<BingoRoomPage>
       'round': ((room?['round'] as int?) ?? 1) + 1,
     });
     hostBalls = [];
-    seenBalls = 0;
+    ritualTimer?.cancel();
+    announcing = false;
+    settled = 0;
   }
 
   void _savePrizeSoon() {
@@ -789,11 +830,16 @@ class _BingoRoomPageState extends State<BingoRoomPage>
           const SizedBox(height: 6),
           SegmentedButton<int>(
             segments: const [
-              ButtonSegment(value: 4, label: Text('Rápido')),
-              ButtonSegment(value: 6, label: Text('Normal')),
-              ButtonSegment(value: 9, label: Text('Lento')),
+              ButtonSegment(value: 5, label: Text('Rápido')),
+              ButtonSegment(value: 7, label: Text('Normal')),
+              ButtonSegment(value: 10, label: Text('Lento')),
             ],
-            selected: {(room!['speed'] as int?) ?? 6},
+            selected: {
+              () {
+                final sp = (room!['speed'] as int?) ?? 7;
+                return sp <= 5 ? 5 : (sp <= 7 ? 7 : 10);
+              }()
+            },
             onSelectionChanged: (s) =>
                 svc.roomRef(code).update({'speed': s.first}),
           ),
@@ -875,7 +921,8 @@ class _BingoRoomPageState extends State<BingoRoomPage>
 
   Widget _bigBall() {
     final b = balls;
-    if (b.isEmpty) {
+    final big = bigBallNumber;
+    if (b.isEmpty || big == null) {
       return const Center(
         child: Text('🤖 El bot cantor sacará\nla primera bola...',
             textAlign: TextAlign.center, style: TextStyle(fontSize: 16)),
@@ -889,7 +936,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
       ..setEntry(3, 2, 0.0012)
       ..rotateY((1 - q) * 2 * pi)
       ..scale(0.2 + 0.8 * t, 0.2 + 0.8 * t, 1.0);
-    final animating = v < 1.0 && seenBalls == b.length && _ballAnim.isAnimating;
+    final animating = announcing && v < 1.0;
     return LayoutBuilder(builder: (context, c) {
       final size = min(c.maxWidth, c.maxHeight) * 0.86;
       return Stack(
@@ -921,7 +968,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
             Transform(
               alignment: Alignment.center,
               transform: m,
-              child: BingoBallWidget(n: b.last, size: size),
+              child: BingoBallWidget(n: big, size: size),
             ),
         ],
       );
