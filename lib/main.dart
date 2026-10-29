@@ -5,6 +5,7 @@ import 'bingo/bingo_pages.dart';
 import 'chess/chess_pages.dart';
 import 'cuarenta/cuarenta_page.dart';
 import 'galleta/galleta_pages.dart';
+import 'parchis/parchis_pages.dart';
 import 'game_service.dart';
 import 'room_page.dart';
 import 'sfx.dart';
@@ -114,6 +115,17 @@ class MenuPage extends StatelessWidget {
                     'Timbiriche: une puntos y llena cuadritos · vs PC o en línea'),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const GalletaMenuPage()),
+                ),
+              ),
+            ),
+            Card(
+              child: ListTile(
+                leading: const Text('🎲', style: TextStyle(fontSize: 32)),
+                title: const Text('Parchís'),
+                subtitle: const Text(
+                    '4 fichas con temáticas · peleas al comer · vs PC o en línea'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ParchisMenuPage()),
                 ),
               ),
             ),
