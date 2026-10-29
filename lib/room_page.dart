@@ -82,6 +82,7 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
         Sfx.play('vote_start');
       case 'finished':
         Sfx.play('win');
+        Sfx.play('applause', delayMs: 700);
       case 'lobby':
       case 'scoring':
         break;
@@ -139,10 +140,13 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
     final complete = _allComplete();
     await svc.saveAnswers(code, _answers(),
         finished: complete, submitted: submitted);
-    if (complete && !completeTriggered && room!['status'] == 'playing') {
-      completeTriggered = true;
-      await svc.triggerCountdown(code, svc.name);
-    }
+  }
+
+  /// Botón "¡Páreme la mano!": lo presiona quien termina.
+  Future<void> _parame() async {
+    if (!_allComplete() || room!['status'] != 'playing') return;
+    await _flush();
+    await svc.triggerCountdown(code, svc.name);
   }
 
   void _onChanged(String _) {
@@ -174,10 +178,11 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
       }
     }
     if (st == 'voting' && isHost && !scoringStarted) {
-      final ends = r['votingEndsAt'] as int;
-      final allVoted =
-          playerDocs.isNotEmpty && playerDocs.every((d) => d['voted'] == true);
-      if (now >= ends || allVoted) {
+      final allVoted = playerDocs.isNotEmpty &&
+          playerDocs
+              .where((d) => d['cheated'] != true)
+              .every((d) => d['voted'] == true);
+      if (allVoted) {
         scoringStarted = true;
         svc.scoreRound(code);
       }
@@ -191,9 +196,6 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
     } else if (st == 'playing') {
       final s = _secondsLeft(r['roundEndsAt'] as int);
       if (s <= 10) secs = s;
-    } else if (st == 'voting') {
-      final s = _secondsLeft(r['votingEndsAt'] as int);
-      if (s <= 5) secs = s;
     }
     if (secs != null && secs != _lastSecs) {
       _lastSecs = secs;
@@ -376,12 +378,46 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
                     const Padding(
                       padding: EdgeInsets.fromLTRB(50, 8, 16, 0),
                       child: Text(
-                        'Escribe en cada casilla una palabra que empiece con la letra.',
+                        'Escribe en cada casilla una palabra real que empiece con la letra.',
                         style: TextStyle(
                             fontFamily: kHandFont,
                             fontSize: 18,
                             color: Color(0xFF455A64)),
                       ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(50, 14, 16, 0),
+                      child: Builder(builder: (context) {
+                        final ready = !counting && !drawing && !locked && _allComplete();
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.red.shade700,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 22, vertical: 16),
+                              ),
+                              onPressed: ready ? _parame : null,
+                              icon: const Text('✋', style: TextStyle(fontSize: 26)),
+                              label: const Text('¡PÁREME LA MANO!',
+                                  style: TextStyle(
+                                      fontSize: 20, fontWeight: FontWeight.w900)),
+                            ),
+                            if (!ready && !counting && !drawing)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 6),
+                                child: Text(
+                                  'Se activa cuando todas las casillas tienen una palabra válida.',
+                                  style: TextStyle(
+                                      fontFamily: kHandFont,
+                                      fontSize: 16,
+                                      color: Color(0xFF455A64)),
+                                ),
+                              ),
+                          ],
+                        );
+                      }),
                     ),
                   ],
                 ),
@@ -407,18 +443,18 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
     );
   }
 
-  // ---------- Votación ----------
+  // ---------- Revisión (sin tiempo, todos ven todo) ----------
   Widget _voting() {
     final r = room!;
     final cats = List<String>.from(r['categories']);
     final letter = r['letter'] as String;
-    final secs = _secondsLeft(r['votingEndsAt'] as int);
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: svc.playersStream(code),
       builder: (context, snap) {
-        final others = (snap.data?.docs ?? [])
-            .where((d) => d.id != svc.uid && d['cheated'] != true)
-            .toList();
+        final all = [...(snap.data?.docs ?? [])]
+          ..sort((x, y) => (x['joinedAt'] as int).compareTo(y['joinedAt'] as int));
+        final active = all.where((d) => d['cheated'] != true).toList();
+        final done = active.where((d) => d['voted'] == true).length;
         return Column(
           children: [
             Container(
@@ -426,7 +462,8 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
               color: Colors.indigo,
               padding: const EdgeInsets.all(12),
               child: Text(
-                'Revisa las palabras de los demás. Marca las FALSAS. ($secs s)',
+                'Revisen entre todos las palabras (la letra es $letter). '
+                'Marquen las FALSAS. Sin prisa.  Listos: $done/${active.length}',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.white, fontSize: 16),
               ),
@@ -435,23 +472,43 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
               child: ListView(
                 padding: const EdgeInsets.all(12),
                 children: [
-                  if (others.isEmpty)
-                    const Text('No hay palabras de otros jugadores para revisar.'),
-                  for (final p in others)
+                  for (final p in all)
                     Card(
+                      color: p.id == svc.uid ? Colors.amber.shade50 : null,
                       child: Padding(
                         padding: const EdgeInsets.all(12),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(p['name'],
-                                style: Theme.of(context).textTheme.titleMedium),
-                            for (var ci = 0; ci < cats.length; ci++)
-                              _voteRow(p.id, ci, cats[ci], letter,
-                                  (Map<String, dynamic>.from(
-                                          p['answers'] ?? {}))[cats[ci]]
-                                      as String? ??
-                                      ''),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                      p.id == svc.uid
+                                          ? '${p['name']} (tú)'
+                                          : '${p['name']}',
+                                      style: Theme.of(context).textTheme.titleMedium),
+                                ),
+                                if (p['voted'] == true)
+                                  const Chip(
+                                      label: Text('Listo'),
+                                      avatar: Icon(Icons.check, size: 16)),
+                              ],
+                            ),
+                            if (p['cheated'] == true)
+                              const Text('Salió de la app: sus palabras no valen.',
+                                  style: TextStyle(color: Colors.red))
+                            else
+                              for (var ci = 0; ci < cats.length; ci++)
+                                _voteRow(
+                                    p.id,
+                                    ci,
+                                    cats[ci],
+                                    letter,
+                                    (Map<String, dynamic>.from(
+                                            p['answers'] ?? {}))[cats[ci]]
+                                        as String? ??
+                                        ''),
                           ],
                         ),
                       ),
@@ -461,14 +518,28 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
             ),
             Padding(
               padding: const EdgeInsets.all(12),
-              child: FilledButton(
-                onPressed: votedLocal
-                    ? null
-                    : () {
-                        setState(() => votedLocal = true);
-                        svc.saveVotes(code, myVotes, voted: true);
-                      },
-                child: Text(votedLocal ? 'Listo, esperando...' : 'Listo'),
+              child: Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: votedLocal
+                          ? null
+                          : () {
+                              setState(() => votedLocal = true);
+                              svc.saveVotes(code, myVotes, voted: true);
+                            },
+                      child: Text(votedLocal
+                          ? 'Listo, esperando a los demás...'
+                          : 'Ya revisé, estoy listo'),
+                    ),
+                  ),
+                  if (isHost)
+                    TextButton(
+                      onPressed: () => svc.scoreRound(code),
+                      child: const Text('Terminar la revisión ahora (anfitrión)'),
+                    ),
+                ],
               ),
             ),
           ],
@@ -488,17 +559,23 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
     final formatOk = isValidWord(word, letter);
     final key = '$pid|$ci';
     final invalid = myVotes[key] == true;
+    final mine = pid == svc.uid;
+    final startsOk = normalize(word).startsWith(letter.toLowerCase());
     return ListTile(
       dense: true,
       title: Text(cat),
       subtitle: Text(
-        formatOk ? word : '$word  (no empieza con $letter: no vale)',
+        formatOk
+            ? word
+            : (startsOk
+                ? '$word  (no parece una palabra: no vale)'
+                : '$word  (no empieza con $letter: no vale)'),
         style: TextStyle(
           decoration: (invalid || !formatOk) ? TextDecoration.lineThrough : null,
           color: (invalid || !formatOk) ? Colors.red : null,
         ),
       ),
-      trailing: formatOk
+      trailing: (formatOk && !mine)
           ? FilterChip(
               label: const Text('Falsa'),
               selected: invalid,

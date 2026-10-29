@@ -36,9 +36,68 @@ String normalize(String s) {
   return r.replaceAll(RegExp(r'\s+'), ' ');
 }
 
+/// Empieza con la letra de la ronda y parece una palabra de verdad
+/// (no una serie de letras sin sentido).
 bool isValidWord(String word, String letter) {
   final w = normalize(word);
-  return w.length >= 2 && w.startsWith(letter.toLowerCase());
+  return w.length >= 2 &&
+      w.startsWith(letter.toLowerCase()) &&
+      looksLikeWord(word);
+}
+
+const _vowels = 'aeiouy';
+const _kbRows = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm', 'abcdefghijklmnopqrstuvwxyz'];
+
+/// Filtro contra letras al azar: exige vocales, sin rachas imposibles,
+/// sin repeticiones raras ni teclas seguidas del teclado.
+bool looksLikeWord(String raw) {
+  final w = normalize(raw.replaceAll(RegExp(r"['\-]"), ' '));
+  if (w.length < 2) return false;
+  if (RegExp(r'[^a-z ]').hasMatch(w)) return false;
+  final tokens = w.split(' ').where((t) => t.isNotEmpty).toList();
+  if (tokens.isEmpty) return false;
+  for (final t in tokens) {
+    if (!_tokenOk(t)) return false;
+  }
+  return true;
+}
+
+bool _tokenOk(String t) {
+  if (t.length < 2) return false;
+  var vowels = 0;
+  var cRun = 0, vRun = 0, maxC = 0, maxV = 0;
+  for (final ch in t.split('')) {
+    if (_vowels.contains(ch)) {
+      vowels++;
+      vRun++;
+      cRun = 0;
+    } else {
+      cRun++;
+      vRun = 0;
+    }
+    if (cRun > maxC) maxC = cRun;
+    if (vRun > maxV) maxV = vRun;
+  }
+  if (vowels == 0) return false;
+  if (t.length >= 5 && vowels * 8 < t.length) return false;
+  if (maxC >= 5 || (maxC == 4 && t.length < 7)) return false;
+  if (maxV >= 4) return false;
+  if (RegExp(r'(.)\1\1').hasMatch(t)) return false;
+  for (var i = 0; i + 1 < t.length; i++) {
+    if (t[i] == t[i + 1] && !'clrneo'.contains(t[i])) return false;
+  }
+  if (t.length >= 5 && t.split('').toSet().length <= 2) return false;
+  if (t.length >= 6 && RegExp(r'^(.{3,})\1').hasMatch(t)) return false;
+  if (RegExp(r'(.{2})\1\1').hasMatch(t)) return false;
+  for (final row in _kbRows) {
+    final rev = row.split('').reversed.join();
+    for (var i = 0; i + 4 <= t.length; i++) {
+      final seg = t.substring(i, i + 4);
+      if (seg == 'erty') continue; // liberty, property, poverty
+      if (row.contains(seg) || rev.contains(seg)) return false;
+    }
+  }
+  return true;
 }
 
 int nowMs() => DateTime.now().millisecondsSinceEpoch;
@@ -126,7 +185,10 @@ class GameService {
     return null;
   }
 
-  Future<void> startRound(String code, Map<String, dynamic> room) async {
+  Future<void> startRound(String code, Map<String, dynamic> roomIn) async {
+    // Leo la sala actual: así nunca se repite una letra ni se arranca dos veces.
+    final room = (await roomRef(code).get()).data() ?? roomIn;
+    if (room['status'] == 'playing' || room['status'] == 'counting') return;
     final used = List<String>.from(room['usedLetters'] ?? []);
     final available =
         letters.split('').where((l) => !used.contains(l)).toList();
@@ -195,7 +257,7 @@ class GameService {
       if (snap.data()?['status'] != 'counting') return;
       tx.update(roomRef(code), {
         'status': 'voting',
-        'votingEndsAt': nowMs() + voteSeconds * 1000,
+        'votingEndsAt': 0, // la revisión no tiene tiempo límite
       });
     });
   }
