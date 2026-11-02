@@ -7,6 +7,7 @@ import 'cuarenta/cuarenta_page.dart';
 import 'galleta/galleta_pages.dart';
 import 'parchis/parchis_pages.dart';
 import 'pares/pares_pages.dart';
+import 'penales/penales_pages.dart';
 import 'game_service.dart';
 import 'room_page.dart';
 import 'sfx.dart';
@@ -138,6 +139,17 @@ class MenuPage extends StatelessWidget {
                     '3 niveles (10, 20 y 30 pares) · imágenes grandes · hasta 4 jugadores'),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const PairsMenuPage()),
+                ),
+              ),
+            ),
+            Card(
+              child: ListTile(
+                leading: const Text('⚽', style: TextStyle(fontSize: 32)),
+                title: const Text('Penales Libertadores'),
+                subtitle: const Text(
+                    'Cuartos, semis y final · 16 clubes · solo o hasta 8 en línea'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const PenalesMenuPage()),
                 ),
               ),
             ),

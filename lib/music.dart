@@ -38,7 +38,10 @@ class Ambient {
     if (_file != null && _file!.startsWith('music/$_name')) return _file!;
     var f = 'music/$_name.wav';
     for (final ext in ['mp3', 'm4a', 'ogg']) {
-      for (final base in ['quito_fiestas', '${_name}_real']) {
+      for (final base in [
+        if (_name == 'cuarenta_ambiente') 'quito_fiestas',
+        '${_name}_real'
+      ]) {
         try {
           await rootBundle.load('assets/music/$base.$ext');
           f = 'music/$base.$ext';
