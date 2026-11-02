@@ -1,6 +1,7 @@
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'sfx.dart';
 
 /// Música ambiental de fondo en volumen bajo (assets/music/).
@@ -11,6 +12,7 @@ class Ambient {
   static bool _listening = false;
   static String _name = '';
   static double _vol = 0.15;
+  static String? _file; // archivo elegido (propio si existe, si no el generado)
 
   static Future<void> start(String name, {double volume = 0.15}) async {
     _name = name;
@@ -30,6 +32,25 @@ class Ambient {
     await _apply();
   }
 
+  /// Si existe assets/music/<nombre>_real.mp3 (música con licencia que tú
+  /// agregues, p. ej. quito_fiestas) se usa esa; si no, el bucle incluido.
+  static Future<String> _pick() async {
+    if (_file != null && _file!.startsWith('music/$_name')) return _file!;
+    var f = 'music/$_name.wav';
+    for (final ext in ['mp3', 'm4a', 'ogg']) {
+      for (final base in ['quito_fiestas', '${_name}_real']) {
+        try {
+          await rootBundle.load('assets/music/$base.$ext');
+          f = 'music/$base.$ext';
+          _file = f;
+          return f;
+        } catch (_) {}
+      }
+    }
+    _file = f;
+    return f;
+  }
+
   static Future<void> stop() async {
     _wanted = false;
     await _apply();
@@ -42,7 +63,7 @@ class Ambient {
         await _p!.setReleaseMode(ReleaseMode.loop);
         await _p!.setVolume(_vol);
         if (_p!.state != PlayerState.playing) {
-          await _p!.play(AssetSource('music/$_name.wav'));
+          await _p!.play(AssetSource(await _pick()));
         }
       } else if (_p != null) {
         await _p!.dispose();
