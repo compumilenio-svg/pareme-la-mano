@@ -40,6 +40,8 @@ jobs:
         run: dart run tool/perft.dart
       - name: Pruebas del motor de La Galleta
         run: dart run tool/galleta_test.dart
+      - name: Pruebas de Encuentra los pares
+        run: dart run tool/pares_test.dart
       - name: Pruebas del Bingo
         run: dart run tool/bingo_test.dart
       - run: flutter build apk --release
