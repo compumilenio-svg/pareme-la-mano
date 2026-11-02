@@ -357,6 +357,11 @@ class PenalesPage extends StatefulWidget {
   State<PenalesPage> createState() => _PenalesPageState();
 }
 
+/// Duración de la cuenta regresiva (pito + 3, 2, 1) antes de cada tiro.
+const int kCountMs = 4200;
+/// Duración de la jugada animada.
+const int kShotMs = 4200;
+
 class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin {
   bool get online => widget.code != null;
   String get _uid => online ? svc.uid : 'me';
@@ -373,6 +378,7 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
 
   int _selZone = -1;
   int _selShooter = -1;
+  int _autoSeq = -1;
   double _celStart = 0;
 
   late final AnimationController _clock;
@@ -386,7 +392,7 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
     super.initState();
     _clock = AnimationController(vsync: this, duration: const Duration(seconds: 600))
       ..repeat();
-    _shot = AnimationController(vsync: this, duration: const Duration(milliseconds: 3400));
+    _shot = AnimationController(vsync: this, duration: const Duration(milliseconds: kShotMs));
     if (!online) {
       final rng = Random();
       final teams = fillTeams([widget.myTeam], rng);
@@ -454,16 +460,17 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
       case 'pick':
         _selZone = -1;
         _selShooter = -1;
-        if (prev == 'toss') Sfx.play('whistle');
+        _autoSeq = -1;
+        Sfx.play('whistle');
         break;
       case 'show':
         _shot.forward(from: 0);
-        Sfx.play('kick', delayMs: 720);
+        Sfx.play('kick', delayMs: 1600);
         if (gm.lastGoal) {
-          Sfx.play('net', delayMs: 1700);
-          Sfx.play('goal_roar', delayMs: 1750);
+          Sfx.play('net', delayMs: 2250);
+          Sfx.play('goal_roar', delayMs: 2300);
         } else {
-          Sfx.play('save_groan', delayMs: 1700);
+          Sfx.play('save_groan', delayMs: 2250);
         }
         break;
       case 'mend':
@@ -519,8 +526,22 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
   /// Reloj del anfitrión: completa jugadas de la PC, resuelve y avanza.
   void _tick() {
     final gm = g;
-    if (gm == null || !mounted || !_isHost || gm.finished) return;
+    if (gm == null || !mounted || gm.finished) return;
     final el = nowMs() - _stageSince;
+    // Al terminar la cuenta, lo que tengas marcado se envía solo.
+    if (gm.stage == 'pick' && el >= kCountMs - 300 && _autoSeq != gm.seq) {
+      final me = gm.slotOf(_uid);
+      if (me >= 0 && _selZone >= 0) {
+        if (gm.kickerSlot == me && gm.pickKick < 0) {
+          _autoSeq = gm.seq;
+          _confirmKick(gm);
+        } else if (gm.keeperSlot == me && gm.pickKeep < 0) {
+          _autoSeq = gm.seq;
+          _confirmKeep(gm);
+        }
+      }
+    }
+    if (!_isHost) return;
     switch (gm.stage) {
       case 'toss':
         if (el > 3300) _act((x) {
@@ -532,13 +553,13 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
         final botNeeded = (gm.pickKick < 0 && gm.isBot(gm.kickerSlot)) ||
             (gm.pickKeep < 0 && gm.isBot(gm.keeperSlot));
         if (gm.ready) {
-          _act((x) => x.resolve(), seq: gm.seq);
+          if (el >= kCountMs) _act((x) => x.resolve(), seq: gm.seq);
         } else if (botNeeded) {
           _act((x) {
             x.autoPick();
             return true;
           }, seq: gm.seq);
-        } else if (el > 30000) {
+        } else if (el > kCountMs + 1500) {
           _act((x) {
             x.autoPick(force: true);
             return true;
@@ -546,7 +567,7 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
         }
         break;
       case 'show':
-        if (el > 4000) _act((x) {
+        if (el > kShotMs + 1000) _act((x) {
           x.advance();
           return true;
         }, seq: gm.seq);
@@ -706,6 +727,7 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
                         ),
                 ),
                 if (gm.stage == 'toss') Positioned.fill(child: _tossOverlay(gm)),
+                if (gm.stage == 'pick') Positioned.fill(child: _countdown(gm)),
                 if (gm.stage == 'show') _shotBanner(gm),
                 if (inCelebration) _celebrationText(gm),
               ],
@@ -751,7 +773,7 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
                 : kTeams[gTeam].primary),
             shot: anim,
             hover: myPicking ? _selZone : -1,
-            showZones: myPicking || (show && _shot.value < 0.2),
+            showZones: myPicking || (show && _shot.value < 0.36),
             kickerName: name,
             clock: _now,
             cheer: cheer,
@@ -831,6 +853,49 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
     );
   }
 
+  Widget _countdown(Penales gm) {
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _clock,
+        builder: (context, _) {
+          final el = nowMs() - _stageSince;
+          if (el >= kCountMs) return const SizedBox.shrink();
+          String txt;
+          double size;
+          double k = 0;
+          if (el < 1000) {
+            txt = '¡Prepárense!';
+            size = 34;
+          } else {
+            final idx = (el - 1000) ~/ 900;
+            k = ((el - 1000) % 900) / 900.0;
+            txt = idx == 0 ? '3' : (idx == 1 ? '2' : (idx == 2 ? '1' : '¡YA!'));
+            size = idx >= 3 ? 70 : 130;
+          }
+          final scale = 1.0 + 0.5 * (1 - k);
+          return Align(
+            alignment: const Alignment(0, -0.25),
+            child: Opacity(
+              opacity: (1.0 - 0.45 * k).clamp(0.0, 1.0).toDouble(),
+              child: Transform.scale(
+                scale: el < 1000 ? 1.0 : scale,
+                child: Text(txt,
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: size,
+                        fontWeight: FontWeight.w900,
+                        shadows: const [
+                          Shadow(color: Colors.black, blurRadius: 14),
+                          Shadow(color: Colors.black, blurRadius: 4),
+                        ])),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _tossOverlay(Penales gm) {
     final first = gm.teamOf(gm.slotOfSide(gm.first));
     return AnimatedBuilder(
@@ -875,7 +940,7 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
     return AnimatedBuilder(
       animation: _shot,
       builder: (context, _) {
-        if (_shot.value < 0.50) return const SizedBox.shrink();
+        if (_shot.value < 0.54) return const SizedBox.shrink();
         final slotK = gm.slotOfSide(gm.lastSide);
         final slotG = gm.slotOfSide(1 - gm.lastSide);
         final kt = gm.teamOf(slotK), gt = gm.teamOf(slotG);
@@ -1004,7 +1069,7 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('¡Te toca patear! Elige pateador y toca una zona del arco.', style: white),
+          Text('¡Te toca patear! Elige pateador y toca la zona. Se envía solo al llegar a 0.', style: white),
           const SizedBox(height: 4),
           SizedBox(
             height: 38,
@@ -1038,7 +1103,7 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('¡Te toca atajar con ${gm.teamOf(mySlot).gk}! Toca hacia dónde lanzarte.',
+          Text('¡Te toca atajar con ${gm.teamOf(mySlot).gk}! Toca hacia dónde lanzarte. Se envía solo al llegar a 0.',
               style: white, textAlign: TextAlign.center),
           const SizedBox(height: 6),
           FilledButton.icon(

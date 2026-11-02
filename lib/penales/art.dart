@@ -27,8 +27,12 @@ const Color _skinDark = Color(0xFF9C6B45);
 
 double _ease(double t) => 1 - pow(1 - t.clamp(0.0, 1.0), 2).toDouble();
 
-/// Dibuja un jugador con los pies en [feet] y altura [h].
-/// [swing] -1..1 mueve piernas y brazos; [armsUp] 0..1 levanta los brazos.
+Offset _dir(double a) => Offset(sin(a), cos(a));
+
+/// Dibuja un jugador con los pies en [feet] y altura [h], con piernas y brazos
+/// articulados (muslo/pantorrilla, brazo/antebrazo).
+/// [liftL]/[liftR] 0..1 levantan cada pierna (carrera, patada); [spreadL]/[spreadR]
+/// la abren hacia afuera; [armsUp] 0..1 levanta los brazos.
 void drawPlayer(Canvas c, Offset feet, double h, Kit kit,
     {double swing = 0,
     double armsUp = 0,
@@ -36,73 +40,77 @@ void drawPlayer(Canvas c, Offset feet, double h, Kit kit,
     double lean = 0,
     bool dark = false,
     String? label,
-    double labelSize = 0}) {
+    double labelSize = 0,
+    double? liftL,
+    double? liftR,
+    double spreadL = 0,
+    double spreadR = 0,
+    Color? glove}) {
   final u = h;
   final skin = dark ? _skinDark : _skin;
+  final lL = liftL ?? (swing > 0 ? swing : 0.0);
+  final lR = liftR ?? (swing < 0 ? -swing : 0.0);
   c.save();
   c.translate(feet.dx, feet.dy);
   c.rotate(lean);
 
   // sombra
-  c.drawOval(Rect.fromCenter(center: Offset.zero, width: u * 0.38, height: u * 0.07),
-      Paint()..color = Colors.black.withOpacity(0.28));
+  c.drawOval(Rect.fromCenter(center: Offset.zero, width: u * 0.42, height: u * 0.07),
+      Paint()..color = Colors.black.withOpacity(0.30));
 
-  final legW = u * 0.075;
-  void leg(double dx, double ang) {
-    c.save();
-    c.translate(dx, -u * 0.36);
-    c.rotate(ang);
-    // muslo/short
-    c.drawRRect(
-        RRect.fromRectAndRadius(
-            Rect.fromLTWH(-legW / 2 - u * 0.01, 0, legW + u * 0.02, u * 0.15),
-            Radius.circular(u * 0.02)),
-        Paint()..color = kit.shorts);
-    // pierna
-    c.drawRect(Rect.fromLTWH(-legW / 2, u * 0.14, legW, u * 0.10), Paint()..color = skin);
-    // media
-    c.drawRect(Rect.fromLTWH(-legW / 2, u * 0.22, legW, u * 0.10),
-        Paint()..color = kit.socks);
-    // botín
-    c.drawRRect(
-        RRect.fromRectAndRadius(
-            Rect.fromLTWH(-legW / 2 - u * 0.005, u * 0.31, legW + u * 0.04, u * 0.05),
-            Radius.circular(u * 0.02)),
-        Paint()..color = const Color(0xFF151515));
-    c.restore();
+  Paint stroke(Color col, double w, [StrokeCap cap = StrokeCap.round]) => Paint()
+    ..color = col
+    ..strokeWidth = w
+    ..strokeCap = cap
+    ..style = PaintingStyle.stroke;
+
+  void leg(double side, double lift, double spread) {
+    final hip = Offset(side * u * 0.055, -u * 0.50);
+    final ta = side * (0.05 + spread);
+    final knee = hip + _dir(ta) * (u * 0.25 * (1 - 0.45 * lift));
+    final sa = ta - side * 0.10 * lift;
+    final foot = knee + _dir(sa) * (u * 0.25 * (1 - 0.65 * lift));
+    c.drawLine(hip, knee, stroke(skin, u * 0.088));
+    c.drawLine(hip, Offset.lerp(hip, knee, 0.58)!, stroke(kit.shorts, u * 0.108));
+    c.drawLine(knee, foot, stroke(skin, u * 0.074));
+    c.drawLine(Offset.lerp(knee, foot, 0.36)!, foot, stroke(kit.socks, u * 0.08));
+    c.drawCircle(knee, u * 0.040, Paint()..color = skin);
+    c.drawOval(
+        Rect.fromCenter(
+            center: foot + Offset(side * u * 0.012, u * 0.012), width: u * 0.10, height: u * 0.052),
+        Paint()..color = const Color(0xFF111111));
+    c.drawLine(foot + Offset(-u * 0.02, u * 0.004), foot + Offset(u * 0.02, u * 0.004),
+        stroke(Colors.white.withOpacity(0.55), u * 0.008));
   }
 
-  leg(-u * 0.05, swing * 0.7);
-  leg(u * 0.05, -swing * 0.7);
+  leg(-1, lL, spreadL);
+  leg(1, lR, spreadR);
 
-  // brazos
-  void arm(double side) {
-    c.save();
-    c.translate(side * u * 0.145, -u * 0.80);
-    final ang = side * (0.25 + armsUp * 2.4) + swing * side * -0.5;
-    c.rotate(ang);
-    c.drawRRect(
-        RRect.fromRectAndRadius(Rect.fromLTWH(-u * 0.035, 0, u * 0.07, u * 0.12),
-            Radius.circular(u * 0.03)),
-        Paint()..color = kit.sleeve);
-    c.drawRRect(
-        RRect.fromRectAndRadius(Rect.fromLTWH(-u * 0.03, u * 0.10, u * 0.06, u * 0.13),
-            Radius.circular(u * 0.03)),
-        Paint()..color = skin);
-    c.restore();
-  }
-
-  arm(-1);
-  arm(1);
+  // pantaloneta
+  final shorts = Path()
+    ..moveTo(-u * 0.115, -u * 0.57)
+    ..lineTo(u * 0.115, -u * 0.57)
+    ..lineTo(u * 0.135, -u * 0.43)
+    ..lineTo(-u * 0.135, -u * 0.43)
+    ..close();
+  c.drawPath(shorts, Paint()..color = kit.shorts);
+  c.drawLine(Offset(-u * 0.115, -u * 0.565), Offset(u * 0.115, -u * 0.565),
+      stroke(Colors.black.withOpacity(0.25), u * 0.012, StrokeCap.butt));
 
   // camiseta
-  final shirt = RRect.fromRectAndRadius(
-      Rect.fromLTWH(-u * 0.14, -u * 0.83, u * 0.28, u * 0.36), Radius.circular(u * 0.05));
+  final shirt = Path()
+    ..moveTo(-u * 0.150, -u * 0.80)
+    ..lineTo(u * 0.150, -u * 0.80)
+    ..lineTo(u * 0.142, -u * 0.67)
+    ..lineTo(u * 0.118, -u * 0.54)
+    ..lineTo(-u * 0.118, -u * 0.54)
+    ..lineTo(-u * 0.142, -u * 0.67)
+    ..close();
+  final r = shirt.getBounds();
   c.save();
-  c.clipRRect(shirt);
-  c.drawRect(shirt.outerRect, Paint()..color = kit.primary);
+  c.clipPath(shirt);
+  c.drawRect(r, Paint()..color = kit.primary);
   final sp = Paint()..color = kit.secondary;
-  final r = shirt.outerRect;
   switch (kit.pattern) {
     case kPatStripes:
       for (var i = 1; i < 6; i += 2) {
@@ -140,36 +148,68 @@ void drawPlayer(Canvas c, Offset feet, double h, Kit kit,
     default:
       break;
   }
+  // sombreado de volumen
+  c.drawRect(
+      r,
+      Paint()
+        ..shader = LinearGradient(colors: [
+          Colors.black.withOpacity(0.28),
+          Colors.transparent,
+          Colors.transparent,
+          Colors.black.withOpacity(0.28)
+        ], stops: const [0, 0.28, 0.72, 1])
+            .createShader(r));
   c.restore();
 
+  // brazos
+  void arm(double side) {
+    final shoulder = Offset(side * u * 0.150, -u * 0.775);
+    final a1 = side * (0.22 + armsUp * 2.55) + swing * side * -0.5;
+    final elbow = shoulder + _dir(a1) * (u * 0.150);
+    final a2 = a1 + side * (0.20 - armsUp * 0.28);
+    final hand = elbow + _dir(a2) * (u * 0.140);
+    c.drawLine(shoulder, elbow, stroke(kit.sleeve, u * 0.078));
+    c.drawLine(Offset.lerp(shoulder, elbow, 0.6)!, elbow, stroke(skin, u * 0.062));
+    c.drawLine(elbow, hand, stroke(skin, u * 0.060));
+    c.drawCircle(hand, glove != null ? u * 0.046 : u * 0.034,
+        Paint()..color = glove ?? skin);
+  }
+
+  arm(-1);
+  arm(1);
+
   // cuello y cabeza
-  c.drawRect(Rect.fromLTWH(-u * 0.03, -u * 0.87, u * 0.06, u * 0.05), Paint()..color = skin);
-  final head = Offset(0, -u * 0.93);
-  c.drawCircle(head, u * 0.062, Paint()..color = skin);
-  final hair = Paint()..color = const Color(0xFF1E1410);
+  c.drawLine(Offset(0, -u * 0.80), Offset(0, -u * 0.865), stroke(skin, u * 0.052, StrokeCap.butt));
+  final head = Offset(0, -u * 0.925);
+  final hairC = dark ? const Color(0xFF0E0A08) : const Color(0xFF2A1A10);
+  c.drawCircle(head + Offset(-u * 0.063, 0), u * 0.014, Paint()..color = skin);
+  c.drawCircle(head + Offset(u * 0.063, 0), u * 0.014, Paint()..color = skin);
+  c.drawCircle(head, u * 0.063, Paint()..color = skin);
+  final hair = Paint()..color = hairC;
   if (back) {
-    c.drawCircle(head, u * 0.062, hair);
+    c.drawArc(Rect.fromCircle(center: head, radius: u * 0.066), -0.35, pi + 0.7, true, hair);
+    c.drawArc(Rect.fromCircle(center: head, radius: u * 0.066), pi - 0.35, pi + 0.7, true, hair);
   } else {
-    c.drawArc(Rect.fromCircle(center: head, radius: u * 0.064), pi, pi, true, hair);
+    c.drawArc(Rect.fromCircle(center: head, radius: u * 0.066), pi, pi, true, hair);
     final eye = Paint()..color = const Color(0xFF1E1410);
-    c.drawCircle(head + Offset(-u * 0.022, u * 0.005), u * 0.006, eye);
-    c.drawCircle(head + Offset(u * 0.022, u * 0.005), u * 0.006, eye);
+    c.drawCircle(head + Offset(-u * 0.022, u * 0.006), u * 0.006, eye);
+    c.drawCircle(head + Offset(u * 0.022, u * 0.006), u * 0.006, eye);
+    c.drawLine(head + Offset(-u * 0.014, u * 0.035), head + Offset(u * 0.014, u * 0.035),
+        stroke(const Color(0xFF7A3B2E), u * 0.006));
   }
 
   if (label != null && labelSize > 0) {
+    final lum = kit.primary.computeLuminance();
     final tp = TextPainter(
       text: TextSpan(
           text: label,
           style: TextStyle(
-              color: kit.secondary.computeLuminance() > 0.6 &&
-                      kit.primary.computeLuminance() > 0.6
-                  ? Colors.black87
-                  : (kit.primary.computeLuminance() > 0.55 ? Colors.black87 : Colors.white),
+              color: lum > 0.55 ? Colors.black87 : Colors.white,
               fontSize: labelSize,
               fontWeight: FontWeight.w900)),
       textDirection: TextDirection.ltr,
-    )..layout(maxWidth: u * 0.34);
-    tp.paint(c, Offset(-tp.width / 2, -u * 0.78));
+    )..layout(maxWidth: u * 0.30);
+    tp.paint(c, Offset(-tp.width / 2, -u * 0.765));
   }
   c.restore();
 }
@@ -432,48 +472,75 @@ class PenaltyScenePainter extends CustomPainter {
     final t = shot.t;
     final spot = GoalGeom.spot(s);
     final ballR = h * 0.026;
+    const tKick = 0.385, tBall = 0.54;
 
-    // arquero
-    final keeperRest = Offset(w * 0.5, g.bottom - h * 0.115);
-    final kh = h * 0.215;
+    // ---- arquero: espera con pasitos y se lanza cuando el pateador golpea
+    final kh = h * 0.20;
+    final keeperRest = Offset(w * 0.5, g.bottom - kh * 0.5 + h * 0.004);
     var kCenter = keeperRest;
     var kAng = 0.0;
-    var kArms = 0.35;
-    if (t >= 0 && shot.gz >= 0) {
-      final q = _ease(((t - 0.20) / 0.26));
+    var kArms = 0.5;
+    var kSpread = 0.14;
+    var kLiftL = 0.0, kLiftR = 0.0;
+    if (t > 0.37 && shot.gz >= 0) {
+      final q = _ease((t - 0.37) / 0.17);
       final target = GoalGeom.zoneCenter(s, shot.gz);
-      kCenter = Offset.lerp(keeperRest, target + Offset(0, h * 0.02), q)!;
       final col = shot.gz % 3;
       final dir = col == 0 ? -1.0 : (col == 2 ? 1.0 : 0.0);
-      kAng = dir * 1.25 * q;
-      if (col == 1) kCenter = kCenter - Offset(0, q * h * 0.03);
-      kArms = 0.35 + q * 0.65;
+      kCenter = Offset.lerp(keeperRest, target, q)! - Offset(0, sin(pi * q) * h * 0.035);
+      kAng = dir * 1.30 * q;
+      kArms = 0.55 + 0.45 * q;
+      kSpread = 0.14 + 0.22 * q;
+      if (col == 1) {
+        kCenter = kCenter - Offset(0, q * h * 0.04);
+        kArms = 1.0;
+      }
     } else {
-      // pequeño balanceo mientras espera
-      kCenter = keeperRest + Offset(sin(clock * 2.2) * w * 0.012, 0);
-      kArms = 0.35 + 0.15 * sin(clock * 4);
+      final sway = sin(clock * 3.0);
+      kCenter = keeperRest + Offset(sway * w * 0.025, 0);
+      kArms = 0.5 + 0.12 * sin(clock * 5);
+      kLiftL = max(0.0, sway) * 0.25;
+      kLiftR = max(0.0, -sway) * 0.25;
     }
     c.save();
     c.translate(kCenter.dx, kCenter.dy);
     c.rotate(kAng);
-    drawPlayer(c, Offset(0, kh * 0.5), kh, keeper, armsUp: kArms, swing: 0.1);
+    drawPlayer(c, Offset(0, kh * 0.5), kh, keeper,
+        armsUp: kArms,
+        liftL: kLiftL,
+        liftR: kLiftR,
+        spreadL: kSpread,
+        spreadR: kSpread,
+        glove: const Color(0xFFB6FF00));
     c.restore();
 
-    // balón
+    // ---- balón
     var ball = spot;
     var br = ballR;
     var spin = 0.0;
-    if (t >= 0.22 && shot.kz >= 0) {
-      final p = ((t - 0.22) / 0.28).clamp(0.0, 1.0).toDouble();
-      final e = _ease(p);
+    if (t >= tKick && shot.kz >= 0) {
+      final p = ((t - tKick) / (tBall - tKick)).clamp(0.0, 1.0).toDouble();
       final target = GoalGeom.zoneCenter(s, shot.kz);
-      ball = Offset.lerp(spot, target, e)! - Offset(0, sin(pi * p) * h * 0.05);
-      br = ballR * (1 - 0.45 * e);
-      spin = p * 14;
+      ball = Offset.lerp(spot, target, p)! - Offset(0, sin(pi * p) * h * 0.04);
+      br = ballR * (1 - 0.42 * p);
+      spin = p * 16;
+      if (t > tBall) {
+        final k = ((t - tBall) / 0.12).clamp(0.0, 1.0).toDouble();
+        br = ballR * 0.58;
+        spin += k * 8;
+        if (shot.goal) {
+          ball = Offset(target.dx, min(target.dy + k * h * 0.05, g.bottom - br));
+        } else {
+          final col = shot.kz % 3;
+          final dx = (col == 0 ? -1.0 : (col == 2 ? 1.0 : 0.0)) * k * w * 0.12;
+          ball = target + Offset(dx, k * h * 0.10 - sin(pi * k) * h * 0.04);
+          br = ballR * (0.58 + 0.4 * k);
+        }
+      }
     }
     // red: se sacude cuando entra el gol
-    if (t >= 0.5 && shot.goal && shot.kz >= 0) {
-      final k = ((t - 0.5) / 0.5).clamp(0.0, 1.0).toDouble();
+    if (t >= tBall && shot.goal && shot.kz >= 0) {
+      final k = ((t - tBall) / 0.46).clamp(0.0, 1.0).toDouble();
       final amp = (1 - k) * h * 0.02;
       final tgt = GoalGeom.zoneCenter(s, shot.kz);
       final netP = Paint()
@@ -498,17 +565,66 @@ class PenaltyScenePainter extends CustomPainter {
     c.drawLine(Offset(g.right, g.bottom), Offset(g.right, g.top), post);
     c.drawLine(Offset(g.left, g.top), Offset(g.right, g.top), post);
 
-    // pateador (de espaldas, con su apellido)
-    var run = 0.0;
-    var swing = 0.0;
-    if (t >= 0) {
-      run = _ease((t / 0.22));
-      swing = t < 0.30 ? sin(t / 0.30 * pi * 1.4) * 1.0 : 0.0;
+    // ---- pateador (de espaldas, con su apellido): carrera, golpe y festejo
+    final startH = h * 0.44, endH = h * 0.33;
+    final startFeet = Offset(w * 0.20, h * 1.0);
+    final endFeet = Offset(spot.dx - endH * 0.12, spot.dy + endH * 0.20);
+    var rp = 0.0;
+    var lL = 0.0, lR = 0.0, sR = 0.0;
+    var arms = 0.12;
+    var bob = 0.0;
+    var leanK = 0.0;
+    if (t < 0) {
+      arms = 0.12 + 0.03 * sin(clock * 2);
+    } else if (t >= 0.05) {
+      final p = ((t - 0.05) / (tKick - 0.05)).clamp(0.0, 1.0).toDouble();
+      rp = p * p * (3 - 2 * p);
+      if (t < tKick) {
+        final phase = p * 2 * pi * 3.5;
+        final run = p < 0.78 ? 1.0 : max(0.0, (1 - p) / 0.22);
+        lL = max(0.0, sin(phase)) * 0.8 * run;
+        lR = max(0.0, -sin(phase)) * 0.8 * run;
+        bob = (sin(phase)).abs() * h * 0.012 * run;
+        arms = 0.10 + 0.08 * sin(phase);
+        if (p >= 0.78) {
+          final b = ((p - 0.78) / 0.22).clamp(0.0, 1.0).toDouble();
+          lR = 0.8 * (1 - b) * run + 0.95 * b;
+          sR = -0.20 * b;
+          lL = 0.0;
+        }
+      } else {
+        final k = (t - tKick) / 0.05;
+        final f = ((t - tKick - 0.05) / 0.22).clamp(0.0, 1.0).toDouble();
+        if (k < 1) {
+          lR = 0.95 - 0.15 * k;
+          sR = -0.20 + 0.45 * k;
+        } else {
+          lR = 0.8 * (1 - f) + 0.0 * f;
+          sR = 0.25 - 0.35 * f;
+        }
+        leanK = 0.07 * (1 - f);
+        if (t > tBall + 0.02) {
+          if (shot.goal) {
+            arms = 0.95;
+            bob = (sin((t - tBall) * 38)).abs() * h * 0.022;
+          } else {
+            arms = 0.55;
+            leanK = 0.04;
+          }
+        }
+      }
     }
-    final kickerH = h * 0.40;
-    final kickerFeet = Offset(w * 0.40 + run * w * 0.06, h * 0.995 - (1 - run) * -h * 0.0 - run * h * 0.07);
-    drawPlayer(c, kickerFeet, kickerH, kicker,
-        back: true, swing: swing, label: kickerName.toUpperCase(), labelSize: h * 0.021);
+    final kh2 = startH + (endH - startH) * rp;
+    final kFeet = Offset.lerp(startFeet, endFeet, rp)! - Offset(0, bob);
+    drawPlayer(c, kFeet, kh2, kicker,
+        back: true,
+        liftL: lL,
+        liftR: lR,
+        spreadR: sR,
+        armsUp: arms,
+        lean: leanK,
+        label: kickerName.toUpperCase(),
+        labelSize: kh2 * 0.05);
   }
 
   @override
