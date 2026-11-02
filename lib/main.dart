@@ -6,6 +6,7 @@ import 'chess/chess_pages.dart';
 import 'cuarenta/cuarenta_page.dart';
 import 'galleta/galleta_pages.dart';
 import 'parchis/parchis_pages.dart';
+import 'pares/pares_pages.dart';
 import 'game_service.dart';
 import 'room_page.dart';
 import 'sfx.dart';
@@ -126,6 +127,17 @@ class MenuPage extends StatelessWidget {
                     '4 fichas con temáticas · peleas al comer · vs PC o en línea'),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const ParchisMenuPage()),
+                ),
+              ),
+            ),
+            Card(
+              child: ListTile(
+                leading: const Text('🧠', style: TextStyle(fontSize: 32)),
+                title: const Text('Encuentra los pares'),
+                subtitle: const Text(
+                    '3 niveles (10, 20 y 30 pares) · imágenes grandes · hasta 4 jugadores'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const PairsMenuPage()),
                 ),
               ),
             ),
