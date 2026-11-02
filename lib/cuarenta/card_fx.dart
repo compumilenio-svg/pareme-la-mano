@@ -2,50 +2,18 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'engine.dart';
 import '../sfx.dart';
+import 'card_art.dart';
 
 const double fxCardW = 54;
 const double fxCardH = 78;
 
 /// Cara de una carta (la misma que se ve en la mesa y en la mano).
-Widget playingCardFace(PCard c) => Container(
-      width: fxCardW,
-      height: fxCardH,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.black54),
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: const [
-          BoxShadow(color: Colors.black38, blurRadius: 6, offset: Offset(2, 3)),
-        ],
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        c.label,
-        style: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          color: c.isRed ? Colors.red : Colors.black,
-        ),
-      ),
-    );
+Widget playingCardFace(PCard c) =>
+    PlayingCardFace(card: c, width: fxCardW, height: fxCardH);
 
 /// Reverso de carta (para el reparto).
-Widget playingCardBack() => Container(
-      width: fxCardW,
-      height: fxCardH,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E3A8A),
-        border: Border.all(color: Colors.white, width: 3),
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: const [
-          BoxShadow(color: Colors.black38, blurRadius: 6, offset: Offset(2, 3)),
-        ],
-      ),
-      alignment: Alignment.center,
-      child: const Text('♠♥\n♦♣',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white54, fontSize: 18, height: 1.0)),
-    );
+Widget playingCardBack() =>
+    const CardBack(width: fxCardW, height: fxCardH);
 
 class FxGhost {
   final PCard card;

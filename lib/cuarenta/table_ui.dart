@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'card_art.dart';
 
 /// Datos de un participante sentado alrededor de la mesa.
 class SeatSpec {
@@ -6,32 +7,19 @@ class SeatSpec {
   final String name;
   final int count; // cartas que tiene en la mano (se ven dadas la vuelta)
   final bool active;
-  const SeatSpec(this.key, this.name, this.count, this.active);
+  final Color back;
+  const SeatSpec(this.key, this.name, this.count, this.active,
+      {this.back = const Color(0xFF1B3F94)});
 }
 
 enum _Side { top, left, right }
 
 /// Reverso pequeño de carta.
-Widget _miniBack({bool turned = false}) {
-  final w = turned ? 44.0 : 30.0;
-  final h = turned ? 30.0 : 44.0;
-  return Container(
-    width: w,
-    height: h,
-    decoration: BoxDecoration(
-      color: const Color(0xFF1E3A8A),
-      border: Border.all(color: Colors.white, width: 2),
-      borderRadius: BorderRadius.circular(5),
-      boxShadow: const [
-        BoxShadow(color: Colors.black45, blurRadius: 3, offset: Offset(1, 2)),
-      ],
-    ),
-    alignment: Alignment.center,
-    child: Text('♠♥',
-        style: TextStyle(
-            color: Colors.white54, fontSize: turned ? 11 : 9, height: 1.0)),
-  );
-}
+Widget _miniBack(Color color, {bool turned = false}) => turned
+    ? RotatedBox(
+        quarterTurns: 1,
+        child: CardBack(width: 30, height: 44, color: color))
+    : CardBack(width: 30, height: 44, color: color);
 
 class _SeatHand extends StatelessWidget {
   final SeatSpec spec;
@@ -68,7 +56,7 @@ class _SeatHand extends StatelessWidget {
         height: 44,
         child: Stack(children: [
           for (var i = 0; i < n; i++)
-            Positioned(left: i * step, child: _miniBack()),
+            Positioned(left: i * step, child: _miniBack(spec.back)),
         ]),
       );
     } else {
@@ -78,7 +66,7 @@ class _SeatHand extends StatelessWidget {
         height: n == 0 ? 0 : 30 + (n - 1) * step,
         child: Stack(children: [
           for (var i = 0; i < n; i++)
-            Positioned(top: i * step, child: _miniBack(turned: true)),
+            Positioned(top: i * step, child: _miniBack(spec.back, turned: true)),
         ]),
       );
     }

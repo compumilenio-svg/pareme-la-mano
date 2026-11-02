@@ -7,6 +7,7 @@ import '../sfx.dart';
 import '../music.dart';
 import 'online.dart';
 import 'table_ui.dart';
+import 'card_art.dart';
 
 const rulesText = '''
 • Baraja de 52 sin 8, 9 y 10: quedan 40 cartas (A a 7, J, Q, K).
@@ -17,7 +18,9 @@ const rulesText = '''
 • Caída: 2. Limpia: 2. Caída y limpia juntas: 2.
 • Al terminar la mano, con 20 cartas: 6 puntos, y +1 por carta extra (si queda impar, sube al par).
 • Con 30 puntos o más ya no se cobra cartón.
-• En línea: crea una sala y comparte el código; en parejas, el segundo en entrar es el compañero del anfitrión.
+• Desde 38 puntos, los últimos 2 solo se ganan con una caída (ni limpia, ni ronda, ni cartón).
+• En línea (4 jugadores): cada uno escoge Pareja 1 o Pareja 2 antes de empezar. A un lado ves el cartón que lleva cada pareja.
+• En línea: crea una sala y comparte el código.
 • Se gana la chica al llegar a 40. La grande es al mejor de 3 chicas.
 ''';
 
@@ -325,28 +328,13 @@ class _CuarentaGamePageState extends State<CuarentaGamePage>
     return Opacity(
       opacity: fxHidden(c.id) ? 0 : 1,
       child: GestureDetector(
-      onTap: onTap,
-      child: Container(
-        key: fxCardKey(c.id),
-        width: 54,
-        height: 78,
-        margin: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: Colors.black54),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          c.label,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: c.isRed ? Colors.red : Colors.black,
-          ),
+        onTap: onTap,
+        child: Container(
+          key: fxCardKey(c.id),
+          margin: const EdgeInsets.all(3),
+          child: playingCardFace(c),
         ),
       ),
-    ),
     );
   }
 
@@ -387,14 +375,22 @@ class _CuarentaGamePageState extends State<CuarentaGamePage>
               padding: const EdgeInsets.all(12),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Nosotros: ${g.scores[0]}',
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold)),
+                  Column(children: [
+                    Text('Nosotros: ${g.scores[0]}',
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold)),
+                    CartonChip(
+                        cards: g.won[0].length, score: g.scores[0], mine: true),
+                  ]),
                   if (widget.grande) Text('Chicas $wins0 - $wins1'),
-                  Text('Ellos: ${g.scores[1]}',
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold)),
+                  Column(children: [
+                    Text('Ellos: ${g.scores[1]}',
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold)),
+                    CartonChip(cards: g.won[1].length, score: g.scores[1]),
+                  ]),
                 ],
               ),
             ),
@@ -403,7 +399,10 @@ class _CuarentaGamePageState extends State<CuarentaGamePage>
                 others: [
                   for (var s = 1; s < widget.numPlayers; s++)
                     SeatSpec(fxSeatKey(s), seatNames[s], g.hands[s].length,
-                        g.current == s),
+                        g.current == s,
+                        back: s.isEven
+                            ? const Color(0xFF1B3F94)
+                            : const Color(0xFFB3261E)),
                 ],
                 center: g.table.isEmpty
                     ? const Text('Mesa vacía')

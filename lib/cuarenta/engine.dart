@@ -12,6 +12,19 @@ const int pointsCaidaLimpia = 2; // caída + limpia en la misma jugada
 const int cartonMinCards = 20; // cartas para cobrar cartón
 const int cartonBasePoints = 6; // puntos con 20 cartas (+1 por carta extra)
 const int noCartonFrom = 30; // con 30 puntos o más ya no se cobra cartón
+const int onlyCaidaFrom = 38; // desde 38, los últimos puntos solo por caída
+
+/// Dichos quiteños para cada tipo de jugada con puntos. Cambia o agrega
+/// frases aquí; se elige una al azar. Claves: caida, limpia, caidalimpia,
+/// ronda, cuatro, carton.
+const Map<String, List<String>> kDichos = {
+  'caida': ['¡Dos por sunsho!', '¡Cayó, ñaño!', '¡Achachay, caída!'],
+  'limpia': ['¡Marido tiene!', '¡Limpiecito, ñaño!', '¡Barrida de ley!'],
+  'caidalimpia': ['¡Dos por sunsho y marido tiene!', '¡Arrarray, caída y limpia!'],
+  'ronda': ['¡Ronda de entrada, ñaño!', '¡Qué suertudo, carajo!'],
+  'cuatro': ['¡Cuatro iguales, qué barbaridad!', '¡Arrarray, cuatro de ley!'],
+  'carton': ['¡Cartón, de ley!', '¡Cartón y a la fuerza, ñaño!'],
+};
 // Sumas: una carta tuya levanta DOS cartas de la mesa que sumen su valor.
 // (El código genera solo combinaciones de 2 cartas.)
 
@@ -191,17 +204,25 @@ class CuarentaGame {
       }
       final team = teamOf(seat);
       if (counts.values.any((v) => v == 4)) {
-        _addPoints(team, pointsFourOfAKind,
-            'por 4 cartas iguales de ${seatNames[seat]}');
+        _addPoints(team, pointsFourOfAKind, 'cuatro');
       } else if (counts.values.any((v) => v == 3)) {
-        _addPoints(team, pointsRonda, 'por trío de entrada de ${seatNames[seat]}');
+        _addPoints(team, pointsRonda, 'ronda');
       }
     }
   }
 
-  void _addPoints(int team, int pts, String why) {
+  /// `kind` es la clave del dicho. Desde [onlyCaidaFrom] puntos solo cuentan
+  /// las caídas (con caída y limpia también); lo demás no suma.
+  void _addPoints(int team, int pts, String kind) {
+    final isCaida = kind == 'caida' || kind == 'caidalimpia';
+    if (scores[team] >= onlyCaidaFrom && !isCaida) {
+      events.add(
+          '${teamNames[team]} ya tiene $onlyCaidaFrom: los últimos puntos solo salen por caída.');
+      return;
+    }
     scores[team] += pts;
-    events.add('${teamNames[team]} +$pts $why');
+    final list = kDichos[kind] ?? const ['¡Puntos!'];
+    events.add('${list[rng.nextInt(list.length)]}  ${teamNames[team]} +$pts');
     if (scores[team] >= winScore && winnerTeam == null) {
       winnerTeam = team;
     }
@@ -299,11 +320,11 @@ class CuarentaGame {
       final limpia = table.isEmpty;
       lastBonus = caida || limpia;
       if (caida && limpia) {
-        _addPoints(team, pointsCaidaLimpia, 'por caída y limpia');
+        _addPoints(team, pointsCaidaLimpia, 'caidalimpia');
       } else if (caida) {
-        _addPoints(team, pointsCaida, 'por caída');
+        _addPoints(team, pointsCaida, 'caida');
       } else if (limpia) {
-        _addPoints(team, pointsLimpia, 'por limpia');
+        _addPoints(team, pointsLimpia, 'limpia');
       }
     }
     if (winnerTeam != null) return events;
@@ -341,7 +362,7 @@ class CuarentaGame {
         events.add(
             '${teamNames[cartonTeam]} ya tiene $noCartonFrom o más: no cobra cartón.');
       } else {
-        _addPoints(cartonTeam, pts, 'por cartón');
+        _addPoints(cartonTeam, pts, 'carton');
       }
     }
     if (winnerTeam == null) {

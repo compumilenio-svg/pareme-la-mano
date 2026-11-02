@@ -8,6 +8,7 @@ import 'cuarenta_page.dart' show rulesText;
 import 'engine.dart';
 import 'card_fx.dart';
 import 'table_ui.dart';
+import 'card_art.dart';
 import '../sfx.dart';
 import '../music.dart';
 
@@ -46,8 +47,20 @@ class CuarentaOnline {
   static Map<String, dynamic> _player(String name) => {
         'name': name,
         'joinedAt': nowMs(),
+        'team': -1, // 0 = Pareja 1, 1 = Pareja 2, -1 = sin elegir
         'move': {'n': 0, 'card': 0, 'cap': <int>[]},
       };
+
+  /// Elige Pareja 1 (0) o Pareja 2 (1). Devuelve false si esa pareja ya está llena.
+  static Future<bool> chooseTeam(String code, int team) async {
+    final docs = (await svc.playersRef(code).get()).docs;
+    final inTeam = docs
+        .where((d) => d.id != svc.uid && (d.data()['team'] as int?) == team)
+        .length;
+    if (inTeam >= 2) return false;
+    await svc.playersRef(code).doc(svc.uid).update({'team': team});
+    return true;
+  }
 
   /// null si todo bien, o un mensaje de error.
   static Future<String?> join(String code, String playerName) async {
@@ -119,14 +132,44 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
   Future<void> _start(
       List<QueryDocumentSnapshot<Map<String, dynamic>>> players) async {
     final n = room!['numPlayers'] as int;
-    final order = n == 4 ? _seatOrder4 : _seatOrder2;
     final sorted = [...players]..sort((a, b) =>
         (a['joinedAt'] as int).compareTo(b['joinedAt'] as int));
     final seats = <String, String>{};
     final names = List<String>.filled(n, '');
-    for (var i = 0; i < sorted.length && i < n; i++) {
-      seats['${order[i]}'] = sorted[i].id;
-      names[order[i]] = sorted[i]['name'] as String;
+    void put(int seat, QueryDocumentSnapshot<Map<String, dynamic>> p) {
+      seats['$seat'] = p.id;
+      names[seat] = p['name'] as String;
+    }
+    if (n == 4) {
+      // Asientos por pareja: Pareja 1 = 0 y 2; Pareja 2 = 1 y 3.
+      const teamSeats = [
+        [0, 2],
+        [1, 3]
+      ];
+      final rest = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      for (final p in sorted) {
+        final t = (p.data()['team'] as int?) ?? -1;
+        final free = t < 0 || t > 1
+            ? <int>[]
+            : teamSeats[t].where((x) => !seats.containsKey('$x')).toList();
+        if (free.isEmpty) {
+          rest.add(p);
+        } else {
+          put(free.first, p);
+        }
+      }
+      for (final p in rest) {
+        for (final x in _seatOrder4) {
+          if (!seats.containsKey('$x')) {
+            put(x, p);
+            break;
+          }
+        }
+      }
+    } else {
+      for (var i = 0; i < sorted.length && i < n; i++) {
+        put(_seatOrder2[i], sorted[i]);
+      }
     }
     var botN = 1;
     for (var s = 0; s < n; s++) {
@@ -310,28 +353,13 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
     return Opacity(
       opacity: fxHidden(c.id) ? 0 : 1,
       child: GestureDetector(
-      onTap: onTap,
-      child: Container(
-        key: fxCardKey(c.id),
-        width: 54,
-        height: 78,
-        margin: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: Colors.black54),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          c.label,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: c.isRed ? Colors.red : Colors.black,
-          ),
+        onTap: onTap,
+        child: Container(
+          key: fxCardKey(c.id),
+          margin: const EdgeInsets.all(3),
+          child: playingCardFace(c),
         ),
       ),
-    ),
     );
   }
 
@@ -400,7 +428,7 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
                 const Padding(
                   padding: EdgeInsets.only(top: 4),
                   child: Text(
-                      'El segundo en entrar es el compañero del anfitrión. Los asientos libres los juegan bots.',
+                      'Elige tu pareja. Los asientos libres los juegan bots.',
                       textAlign: TextAlign.center),
                 )
               else
@@ -412,18 +440,20 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
               Text('Jugadores (${players.length}/$n)',
                   style: Theme.of(context).textTheme.titleMedium),
               Expanded(
-                child: ListView(
-                  children: [
-                    for (final p in players)
-                      ListTile(
-                        leading: const Icon(Icons.person),
-                        title: Text(p.data()['name'] ?? ''),
-                        trailing: p.id == room!['hostId']
-                            ? const Chip(label: Text('Anfitrión'))
-                            : null,
+                child: n == 4
+                    ? _teamPicker(players)
+                    : ListView(
+                        children: [
+                          for (final p in players)
+                            ListTile(
+                              leading: const Icon(Icons.person),
+                              title: Text(p.data()['name'] ?? ''),
+                              trailing: p.id == room!['hostId']
+                                  ? const Chip(label: Text('Anfitrión'))
+                                  : null,
+                            ),
+                        ],
                       ),
-                  ],
-                ),
               ),
               if (isHost)
                 FilledButton(
@@ -436,6 +466,89 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
           ),
         );
       },
+    );
+  }
+
+  Widget _teamPicker(List<QueryDocumentSnapshot<Map<String, dynamic>>> players) {
+    int teamOfP(QueryDocumentSnapshot<Map<String, dynamic>> p) =>
+        (p.data()['team'] as int?) ?? -1;
+    final mine = players.where((p) => p.id == svc.uid).toList();
+    final myTeam = mine.isEmpty ? -1 : teamOfP(mine.first);
+    Widget column(int t, String title, Color color) {
+      final members = players.where((p) => teamOfP(p) == t).toList();
+      final full = members.length >= 2;
+      return Expanded(
+        child: Card(
+          color: color.withOpacity(0.10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: color, width: myTeam == t ? 3 : 1),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              children: [
+                Text(title,
+                    style: TextStyle(
+                        fontSize: 17, fontWeight: FontWeight.bold, color: color)),
+                const SizedBox(height: 6),
+                for (final p in members)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Text(
+                      '${p.data()['name'] ?? ''}${p.id == room!['hostId'] ? ' ★' : ''}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                for (var i = members.length; i < 2; i++)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 2),
+                    child: Text('(libre → bot)',
+                        style: TextStyle(color: Colors.black45)),
+                  ),
+                const Spacer(),
+                FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: color),
+                  onPressed: myTeam == t || (full && myTeam != t)
+                      ? null
+                      : () async {
+                          final ok = await CuarentaOnline.chooseTeam(code, t);
+                          if (!ok && mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Esa pareja ya está llena.')));
+                          }
+                        },
+                  child: Text(myTeam == t ? 'Estás aquí' : 'Unirme'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final undecided = players.where((p) => teamOfP(p) < 0).toList();
+    return Column(
+      children: [
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              column(0, 'Pareja 1', Colors.blue.shade800),
+              column(1, 'Pareja 2', Colors.red.shade800),
+            ],
+          ),
+        ),
+        if (undecided.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+                'Sin elegir: ${undecided.map((p) => p.data()['name']).join(', ')}',
+                textAlign: TextAlign.center),
+          ),
+        const SizedBox(height: 8),
+      ],
     );
   }
 
@@ -476,14 +589,26 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
           padding: const EdgeInsets.all(12),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Nosotros: ${g.scores[myTeam]}',
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold)),
+              Column(children: [
+                Text('Nosotros: ${g.scores[myTeam]}',
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold)),
+                CartonChip(
+                    cards: g.won[myTeam].length,
+                    score: g.scores[myTeam],
+                    mine: true),
+              ]),
               if (grande) Text('Chicas ${wins[myTeam]} - ${wins[1 - myTeam]}'),
-              Text('Ellos: ${g.scores[1 - myTeam]}',
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold)),
+              Column(children: [
+                Text('Ellos: ${g.scores[1 - myTeam]}',
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold)),
+                CartonChip(
+                    cards: g.won[1 - myTeam].length,
+                    score: g.scores[1 - myTeam]),
+              ]),
             ],
           ),
         ),
@@ -495,7 +620,10 @@ class _CuarentaRoomPageState extends State<CuarentaRoomPage>
                     fxSeatKey(s),
                     '${names[s]}${g.teamOf(s) == myTeam ? ' (compañero)' : ''}',
                     g.hands[s].length,
-                    g.current == s),
+                    g.current == s,
+                    back: g.teamOf(s) == myTeam
+                        ? const Color(0xFF1B3F94)
+                        : const Color(0xFFB3261E)),
             ],
             center: status == 'chica_end'
                 ? _chicaEnd(g, myTeam, wins)
