@@ -96,6 +96,8 @@ jobs:
         run: dart run tool/pares_test.dart
       - name: Pruebas del Bingo
         run: dart run tool/bingo_test.dart
+      - name: Pruebas de penales
+        run: dart run tool/penales_test.dart
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
