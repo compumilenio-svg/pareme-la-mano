@@ -11,10 +11,10 @@ class Ambient {
   static bool _wanted = false;
   static bool _listening = false;
   static String _name = '';
-  static double _vol = 0.15;
+  static double _vol = 0.12;
   static String? _file; // archivo elegido (propio si existe, si no el generado)
 
-  static Future<void> start(String name, {double volume = 0.15}) async {
+  static Future<void> start(String name, {double volume = 0.12}) async {
     _name = name;
     _vol = volume;
     _wanted = true;
