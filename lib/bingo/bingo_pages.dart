@@ -358,6 +358,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
   Timer? drawTimer;
   List<int> hostBalls = [];
   bool finalizing = false;
+  int? hostEndAt;
   final prizeCtrl = TextEditingController();
   final priceCtrl = TextEditingController();
   bool fieldsLoaded = false;
@@ -532,7 +533,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
           title: Text(winnerId.isEmpty ? 'Se acabaron las bolas' : '¡BINGO! 🎉'),
           content: Text(winnerId.isEmpty
               ? 'Nadie completó la cartilla.'
-              : '${winnerId == svc.uid ? '¡Ganaste tú!' : 'Ganó $winner'}'
+              : '${winnerId == svc.uid ? '¡Ganaste tú!' : (claimed ? '$winner presionó ¡BINGO! antes que tú' : 'Ganó $winner')}'
                   '${prize.isEmpty ? '' : '\nPremio: $prize'}'),
           actions: [
             TextButton(
@@ -637,12 +638,27 @@ class _BingoRoomPageState extends State<BingoRoomPage>
     svc.playersRef(code).doc(svc.uid).update({
       'marks': [for (final m in myMarks) marksToString(m)],
     });
-    if (cardComplete(myMarks[ci])) {
-      claimed = true;
-      svc.playersRef(code).doc(svc.uid).update({
-        'bingo': {'card': ci, 'at': nowMs()},
-      });
+  }
+
+  /// Primera cartilla completa (todas las casillas tachadas), o -1.
+  int _completeCard() {
+    for (var i = 0; i < myMarks.length; i++) {
+      if (cardComplete(myMarks[i])) return i;
     }
+    return -1;
+  }
+
+  /// El jugador "grita" ¡BINGO!: gana quien lo presione primero
+  /// (la hora la pone el servidor, no el teléfono).
+  void _pressBingo() {
+    if (status != 'playing' || claimed) return;
+    final ci = _completeCard();
+    if (ci < 0) return;
+    setState(() => claimed = true);
+    Sfx.play('score');
+    svc.playersRef(code).doc(svc.uid).update({
+      'bingo': {'card': ci, 'at': FieldValue.serverTimestamp()},
+    });
   }
 
   // ------------------------------------------------------------------
@@ -669,6 +685,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
   }
 
   void _startDrawing() {
+    hostEndAt = null;
     drawTimer?.cancel();
     // Nunca más rápido que lo que dura el ritual de cada bola.
     final speed = max(5, (room?['speed'] as int?) ?? 7);
@@ -682,6 +699,10 @@ class _BingoRoomPageState extends State<BingoRoomPage>
     if (!mounted || !isHost || status != 'playing') return;
     if (room?['paused'] == true) return;
     if (hostBalls.length >= bingoBalls) {
+      // Salieron las 75: se da un tiempo para que quien completó pueda
+      // presionar ¡BINGO! antes de cerrar la partida.
+      hostEndAt ??= nowMs() + 25000;
+      if (nowMs() < hostEndAt!) return;
       drawTimer?.cancel();
       drawTimer = null;
       svc.roomRef(code).update({'status': 'finished', 'winnerId': '', 'winnerName': ''});
@@ -709,7 +730,15 @@ class _BingoRoomPageState extends State<BingoRoomPage>
         svc.playersRef(code).doc(d.id).update({'bingo': null});
         continue;
       }
-      final at = (b['at'] as int?) ?? 0;
+      final raw = b['at'];
+      final int at;
+      if (raw is Timestamp) {
+        at = raw.millisecondsSinceEpoch;
+      } else if (raw is int) {
+        at = raw;
+      } else {
+        continue; // la hora del servidor aún no llegó; se revisa en la próxima
+      }
       if (at < bestAt) {
         bestAt = at;
         best = d;
@@ -1053,6 +1082,26 @@ class _BingoRoomPageState extends State<BingoRoomPage>
               textAlign: TextAlign.center,
               style: const TextStyle(
                   color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+        if (status == 'playing' && _completeCard() >= 0)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+            child: SizedBox(
+              width: double.infinity,
+              height: 64,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                    backgroundColor: claimed ? Colors.grey : Colors.red),
+                onPressed: claimed ? null : _pressBingo,
+                child: Text(
+                  claimed ? 'Bingo enviado… validando' : '¡BINGO!',
+                  style: const TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white),
+                ),
+              ),
             ),
           ),
         if (isHost)
