@@ -775,6 +775,7 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
             hover: myPicking ? _selZone : -1,
             showZones: myPicking || (show && _shot.value < 0.36),
             kickerName: name,
+            keeperName: kTeams[gTeam].gk,
             clock: _now,
             cheer: cheer,
           ),
