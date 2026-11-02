@@ -5,7 +5,59 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
 jobs:
+  web:
+    name: Versión web (se actualiza sola)
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generar proyecto web
+        run: |
+          flutter create --org com.cesar.juegos --project-name pareme_la_mano --platforms=web _genweb
+          cp -r _genweb/web web
+          rm -rf _genweb
+          # La canción con derechos de autor NO se publica en la web
+          rm -f assets/music/quito_fiestas.*
+          cp web_assets/icons/*.png web/icons/
+          cp web_assets/favicon.png web/favicon.png
+          cp web_assets/update.js web/update.js
+          sed -i 's#<title>[^<]*</title>#<title>Noche de juegos</title>#' web/index.html
+          sed -i 's#</body>#<script src="update.js"></script></body>#' web/index.html
+          sed -i -E 's/"name": "[^"]*"/"name": "Noche de juegos"/; s/"short_name": "[^"]*"/"short_name": "Noche de juegos"/; s/"background_color": "[^"]*"/"background_color": "#5E35B1"/; s/"theme_color": "[^"]*"/"theme_color": "#5E35B1"/' web/manifest.json
+
+      - run: flutter pub get
+      - run: flutter build web --release --base-href /pareme-la-mano/
+
+      - name: Marcar versión
+        run: |
+          echo "${{ github.sha }}" > build/web/build_id.txt
+          sed -i "s/__BUILD_ID__/${{ github.sha }}/" build/web/update.js
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
   build:
     runs-on: ubuntu-latest
     steps:
