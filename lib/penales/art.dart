@@ -38,7 +38,7 @@ const List<Color> _skinTones = [
   Color(0xFF55321F),
 ];
 const List<Color> _hairTones = [
-  Color(0xFF1B1210),
+  Color(0xFF17100D),
   Color(0xFF3A2416),
   Color(0xFF5B3A22),
   Color(0xFF8D5C2C),
@@ -55,10 +55,47 @@ int lookOf(String s) {
   return h;
 }
 
-/// Dibuja un jugador estilo caricatura (cabeza grande, ojos grandes) con los pies
-/// en [feet] y altura [h]. Piel, peinado y color de cabello salen de [look].
-/// [liftL]/[liftR] 0..1 levantan cada pierna; [spreadL]/[spreadR] las abren;
-/// [armsUp] 0..1 levanta los brazos.
+Color _shade(Color c, double k) => Color.lerp(c, Colors.black, k)!;
+
+/// Color de ribetes (cuello, puños): el secundario si contrasta, si no uno más oscuro.
+Color _trimOf(Kit kit) {
+  final d = (kit.secondary.computeLuminance() - kit.primary.computeLuminance()).abs();
+  return d > 0.12 ? kit.secondary : _shade(kit.primary, 0.45);
+}
+
+/// Bosquejo genérico de escudo (no es el escudo oficial): usa los colores del club.
+void _drawCrestSketch(Canvas c, Offset p, double s, Kit kit) {
+  final path = Path()
+    ..moveTo(p.dx - s * 0.5, p.dy - s * 0.55)
+    ..lineTo(p.dx + s * 0.5, p.dy - s * 0.55)
+    ..lineTo(p.dx + s * 0.5, p.dy + s * 0.05)
+    ..quadraticBezierTo(p.dx + s * 0.45, p.dy + s * 0.45, p.dx, p.dy + s * 0.65)
+    ..quadraticBezierTo(p.dx - s * 0.45, p.dy + s * 0.45, p.dx - s * 0.5, p.dy + s * 0.05)
+    ..close();
+  final lum = kit.primary.computeLuminance();
+  final base = lum > 0.7 ? kit.secondary : Colors.white;
+  final fill = lum > 0.7 ? Colors.white : kit.secondary;
+  c.save();
+  c.clipPath(path);
+  c.drawRect(path.getBounds(), Paint()..color = base);
+  c.drawRect(
+      Rect.fromLTWH(p.dx - s * 0.5, p.dy - s * 0.05, s, s * 0.7), Paint()..color = fill);
+  c.drawRect(Rect.fromLTWH(p.dx - s * 0.5, p.dy - s * 0.12, s, s * 0.14),
+      Paint()..color = kit.primary);
+  c.restore();
+  c.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = s * 0.10
+        ..color = _shade(kit.primary, 0.55));
+  c.drawCircle(p + Offset(0, -s * 0.30), s * 0.11, Paint()..color = _shade(kit.primary, 0.55));
+}
+
+/// Dibuja un jugador de proporciones reales, en estilo vectorial plano con
+/// sombras, con los pies en [feet] y altura [h]. Piel, peinado y color de cabello
+/// salen de [look]. [liftL]/[liftR] 0..1 levantan cada pierna; [spreadL]/[spreadR]
+/// las abren; [armsUp] 0..1 levanta los brazos.
 void drawPlayer(Canvas c, Offset feet, double h, Kit kit,
     {double swing = 0,
     double armsUp = 0,
@@ -67,6 +104,8 @@ void drawPlayer(Canvas c, Offset feet, double h, Kit kit,
     int look = 0,
     String? label,
     double labelSize = 0,
+    String? number,
+    bool crest = false,
     double? liftL,
     double? liftR,
     double spreadL = 0,
@@ -76,74 +115,90 @@ void drawPlayer(Canvas c, Offset feet, double h, Kit kit,
   final skin = _skinTones[const [1, 1, 2, 2, 2, 3, 3, 0, 4, 5][(look >> 3) % 10]];
   final hairC = _hairTones[const [0, 0, 0, 1, 1, 2, 2, 3, 4, 5][(look >> 7) % 10]];
   final style = const [0, 0, 1, 1, 2, 3, 4, 0, 1, 2][(look >> 11) % 10];
-  final skinShade = Color.lerp(skin, Colors.black, 0.18)!;
+  final skinSh = _shade(skin, 0.22);
+  final trim = _trimOf(kit);
   final lL = liftL ?? (swing > 0 ? swing : 0.0);
   final lR = liftR ?? (swing < 0 ? -swing : 0.0);
   c.save();
   c.translate(feet.dx, feet.dy);
   c.rotate(lean);
 
-  // sombra
-  c.drawOval(Rect.fromCenter(center: Offset.zero, width: u * 0.44, height: u * 0.07),
-      Paint()..color = Colors.black.withOpacity(0.30));
+  c.drawOval(Rect.fromCenter(center: Offset.zero, width: u * 0.46, height: u * 0.06),
+      Paint()..color = Colors.black.withOpacity(0.28));
 
-  Paint stroke(Color col, double w, [StrokeCap cap = StrokeCap.round]) => Paint()
-    ..color = col
-    ..strokeWidth = w
-    ..strokeCap = cap
-    ..style = PaintingStyle.stroke;
+  // miembro cónico con sombra plana de un costado
+  void quad(Offset a, Offset b, double wa, double wb, double off, Color col) {
+    final d = b - a;
+    final len = d.distance;
+    if (len < 0.0001) return;
+    final n = Offset(-d.dy / len, d.dx / len);
+    final path = Path()
+      ..moveTo(a.dx + n.dx * (off + wa / 2), a.dy + n.dy * (off + wa / 2))
+      ..lineTo(b.dx + n.dx * (off + wb / 2), b.dy + n.dy * (off + wb / 2))
+      ..lineTo(b.dx + n.dx * (off - wb / 2), b.dy + n.dy * (off - wb / 2))
+      ..lineTo(a.dx + n.dx * (off - wa / 2), a.dy + n.dy * (off - wa / 2))
+      ..close();
+    final p = Paint()..color = col;
+    c.drawPath(path, p);
+    c.drawCircle(a + n * off, wa / 2, p);
+    c.drawCircle(b + n * off, wb / 2, p);
+  }
+
+  void limb(Offset a, Offset b, double wa, double wb, Color col, Color sh) {
+    quad(a, b, wa, wb, 0, sh);
+    quad(a, b, wa * 0.74, wb * 0.74, -wa * 0.13, col);
+  }
 
   void leg(double side, double lift, double spread) {
-    final hip = Offset(side * u * 0.050, -u * 0.34);
-    final ta = side * (0.05 + spread);
-    final knee = hip + _dir(ta) * (u * 0.15 * (1 - 0.55 * lift));
+    final hip = Offset(side * u * 0.052, -u * 0.50);
+    final ta = side * (0.04 + spread);
+    final knee = hip + _dir(ta) * (u * 0.225 * (1 - 0.55 * lift));
     final sa = ta - side * 0.10 * lift;
-    final foot = knee + _dir(sa) * (u * 0.15 * (1 - 0.70 * lift));
-    c.drawLine(hip, knee, stroke(skin, u * 0.082));
-    c.drawLine(hip, Offset.lerp(hip, knee, 0.62)!, stroke(kit.shorts, u * 0.105));
-    c.drawLine(knee, foot, stroke(skin, u * 0.070));
-    // media alta con franja
-    final sockTop = Offset.lerp(knee, foot, 0.18)!;
-    c.drawLine(sockTop, foot, stroke(kit.socks, u * 0.078));
-    final sd = (foot - knee);
-    final len = sd.distance;
-    if (len > 0.0001) {
-      final perp = Offset(-sd.dy / len, sd.dx / len);
-      final sp0 = Offset.lerp(knee, foot, 0.34)!;
-      c.drawLine(sp0 - perp * (u * 0.04), sp0 + perp * (u * 0.04),
-          stroke(Colors.white.withOpacity(0.85), u * 0.014, StrokeCap.butt));
-    }
-    // botín blanco
-    c.drawOval(
-        Rect.fromCenter(
-            center: foot + Offset(side * u * 0.014, u * 0.012), width: u * 0.115, height: u * 0.062),
-        Paint()..color = Colors.white);
-    c.drawLine(foot + Offset(-u * 0.04, u * 0.036), foot + Offset(u * 0.05, u * 0.036),
-        stroke(const Color(0xFF8A8A8A), u * 0.012));
+    final foot = knee + _dir(sa) * (u * 0.215 * (1 - 0.70 * lift));
+    limb(hip, knee, u * 0.096, u * 0.078, skin, skinSh);
+    limb(knee, foot, u * 0.072, u * 0.054, skin, skinSh);
+    // media alta
+    final sTop = Offset.lerp(knee, foot, 0.16)!;
+    quad(sTop, foot, u * 0.080, u * 0.060, 0, kit.socks);
+    quad(Offset.lerp(knee, foot, 0.20)!, Offset.lerp(knee, foot, 0.31)!, u * 0.082, u * 0.078, 0,
+        _trimOf(Kit(kit.socks, kit.secondary, kit.socks, kit.shorts, kit.socks, 0)));
+    // botín
+    final boot = foot + Offset(side * u * 0.012, u * 0.014);
+    c.drawOval(Rect.fromCenter(center: boot, width: u * 0.108, height: u * 0.056),
+        Paint()..color = const Color(0xFF16181C));
+    c.drawLine(boot + Offset(-u * 0.05, u * 0.024), boot + Offset(u * 0.05, u * 0.024),
+        Paint()
+          ..color = const Color(0xFFB9BDC4)
+          ..strokeWidth = u * 0.012
+          ..strokeCap = StrokeCap.round);
+    // pantaloneta: tubo de la pierna
+    quad(hip, Offset.lerp(hip, knee, 0.55)!, u * 0.126, u * 0.124, 0, kit.shorts);
+    quad(hip, Offset.lerp(hip, knee, 0.55)!, u * 0.04, u * 0.04, side * u * 0.035,
+        _shade(kit.shorts, 0.10));
   }
 
   leg(-1, lL, spreadL);
   leg(1, lR, spreadR);
 
-  // pantaloneta
+  // cintura de la pantaloneta
   final shorts = Path()
-    ..moveTo(-u * 0.108, -u * 0.42)
-    ..lineTo(u * 0.108, -u * 0.42)
-    ..lineTo(u * 0.128, -u * 0.27)
-    ..lineTo(-u * 0.128, -u * 0.27)
+    ..moveTo(-u * 0.113, -u * 0.565)
+    ..lineTo(u * 0.113, -u * 0.565)
+    ..lineTo(u * 0.122, -u * 0.44)
+    ..lineTo(-u * 0.122, -u * 0.44)
     ..close();
   c.drawPath(shorts, Paint()..color = kit.shorts);
-  c.drawLine(Offset(0, -u * 0.40), Offset(0, -u * 0.27),
-      stroke(Colors.black.withOpacity(0.12), u * 0.01, StrokeCap.butt));
+  c.drawRect(Rect.fromLTRB(-u * 0.113, -u * 0.565, u * 0.113, -u * 0.548),
+      Paint()..color = _shade(kit.shorts, 0.18));
 
   // camiseta
   final shirt = Path()
-    ..moveTo(-u * 0.135, -u * 0.60)
-    ..lineTo(u * 0.135, -u * 0.60)
-    ..lineTo(u * 0.128, -u * 0.50)
-    ..lineTo(u * 0.108, -u * 0.35)
-    ..lineTo(-u * 0.108, -u * 0.35)
-    ..lineTo(-u * 0.128, -u * 0.50)
+    ..moveTo(-u * 0.140, -u * 0.815)
+    ..quadraticBezierTo(0, -u * 0.835, u * 0.140, -u * 0.815)
+    ..lineTo(u * 0.128, -u * 0.700)
+    ..lineTo(u * 0.112, -u * 0.540)
+    ..quadraticBezierTo(0, -u * 0.525, -u * 0.112, -u * 0.540)
+    ..lineTo(-u * 0.128, -u * 0.700)
     ..close();
   final r = shirt.getBounds();
   c.save();
@@ -152,13 +207,13 @@ void drawPlayer(Canvas c, Offset feet, double h, Kit kit,
   final sp = Paint()..color = kit.secondary;
   switch (kit.pattern) {
     case kPatStripes:
-      for (var i = 1; i < 6; i += 2) {
-        c.drawRect(Rect.fromLTWH(r.left + r.width * i / 6, r.top, r.width / 6, r.height), sp);
+      for (var i = 1; i < 8; i += 2) {
+        c.drawRect(Rect.fromLTWH(r.left + r.width * i / 8, r.top, r.width / 8, r.height), sp);
       }
       break;
     case kPatHoops:
-      for (var i = 1; i < 5; i += 2) {
-        c.drawRect(Rect.fromLTWH(r.left, r.top + r.height * i / 5, r.width, r.height / 5), sp);
+      for (var i = 1; i < 7; i += 2) {
+        c.drawRect(Rect.fromLTWH(r.left, r.top + r.height * i / 7, r.width, r.height / 7), sp);
       }
       break;
     case kPatHalves:
@@ -166,18 +221,18 @@ void drawPlayer(Canvas c, Offset feet, double h, Kit kit,
       break;
     case kPatSash:
       final p = Path()
-        ..moveTo(r.left, r.top)
-        ..lineTo(r.left + r.width * 0.34, r.top)
+        ..moveTo(r.left, r.top + r.height * 0.02)
+        ..lineTo(r.left + r.width * 0.34, r.top + r.height * 0.02)
         ..lineTo(r.right, r.bottom)
         ..lineTo(r.right - r.width * 0.34, r.bottom)
         ..close();
       c.drawPath(p, sp);
       break;
     case kPatChest:
-      c.drawRect(Rect.fromLTWH(r.left, r.top + r.height * 0.30, r.width, r.height * 0.26), sp);
+      c.drawRect(Rect.fromLTWH(r.left, r.top + r.height * 0.28, r.width, r.height * 0.22), sp);
       break;
     case kPatCenter:
-      c.drawRect(Rect.fromLTWH(r.center.dx - r.width * 0.14, r.top, r.width * 0.28, r.height), sp);
+      c.drawRect(Rect.fromLTWH(r.center.dx - r.width * 0.15, r.top, r.width * 0.30, r.height), sp);
       break;
     case kPatTri:
       c.drawRect(Rect.fromLTWH(r.left + r.width / 3, r.top, r.width / 3, r.height),
@@ -187,182 +242,192 @@ void drawPlayer(Canvas c, Offset feet, double h, Kit kit,
     default:
       break;
   }
-  // volumen
-  c.drawRect(
-      r,
-      Paint()
-        ..shader = LinearGradient(colors: [
-          Colors.black.withOpacity(0.26),
-          Colors.transparent,
-          Colors.white.withOpacity(0.08),
-          Colors.black.withOpacity(0.26)
-        ], stops: const [0, 0.30, 0.55, 1])
-            .createShader(r));
+  // sombra plana del costado derecho y pliegue bajo el pecho
+  c.drawRect(Rect.fromLTRB(r.right - r.width * 0.26, r.top, r.right, r.bottom),
+      Paint()..color = Colors.black.withOpacity(0.13));
+  c.drawRect(Rect.fromLTRB(r.left, r.bottom - r.height * 0.07, r.right, r.bottom),
+      Paint()..color = Colors.black.withOpacity(0.12));
   c.restore();
-  // cuello en V (de frente)
-  if (!back) {
+
+  // cuello de la camiseta
+  final trimP = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = u * 0.016
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round
+    ..color = trim;
+  if (back) {
+    c.drawArc(Rect.fromCenter(center: Offset(0, -u * 0.826), width: u * 0.10, height: u * 0.05),
+        0, pi, false, trimP);
+  } else {
     final v = Path()
-      ..moveTo(-u * 0.045, -u * 0.60)
-      ..lineTo(0, -u * 0.545)
-      ..lineTo(u * 0.045, -u * 0.60)
-      ..close();
-    c.drawPath(v, Paint()..color = skin);
+      ..moveTo(-u * 0.050, -u * 0.826)
+      ..lineTo(0, -u * 0.770)
+      ..lineTo(u * 0.050, -u * 0.826);
     c.drawPath(
-        v,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = u * 0.012
-          ..color = Color.lerp(kit.primary, Colors.black, 0.45)!);
+        Path.from(v)
+          ..lineTo(u * 0.050, -u * 0.826)
+          ..close(),
+        Paint()..color = skinSh);
+    c.drawPath(v, trimP);
   }
 
-  // brazos
+  // escudo (bosquejo), marca y número
+  if (!back) {
+    if (crest) _drawCrestSketch(c, Offset(u * 0.062, -u * 0.735), u * 0.050, kit);
+    c.drawCircle(Offset(-u * 0.062, -u * 0.735), u * 0.010,
+        Paint()..color = trim.withOpacity(0.9));
+  }
+  if (number != null) {
+    final lum = kit.primary.computeLuminance();
+    final tpn = TextPainter(
+      text: TextSpan(
+          text: number,
+          style: TextStyle(
+              color: lum > 0.5 ? _shade(trim, 0.2) : Colors.white.withOpacity(0.95),
+              fontSize: u * 0.085,
+              fontWeight: FontWeight.w900)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tpn.paint(c, Offset(-tpn.width / 2, back ? -u * 0.665 : -u * 0.700));
+  }
+
+  // brazos (mangas cortas con puño)
   void arm(double side) {
-    final shoulder = Offset(side * u * 0.135, -u * 0.575);
-    final a1 = side * (0.22 + armsUp * 2.55) + swing * side * -0.5;
-    final elbow = shoulder + _dir(a1) * (u * 0.115);
-    final a2 = a1 + side * (0.20 - armsUp * 0.28);
-    final hand = elbow + _dir(a2) * (u * 0.110);
-    c.drawLine(shoulder, elbow, stroke(kit.sleeve, u * 0.074));
-    c.drawLine(Offset.lerp(shoulder, elbow, 0.62)!, elbow, stroke(skin, u * 0.058));
-    c.drawLine(elbow, hand, stroke(skin, u * 0.056));
-    c.drawCircle(hand, glove != null ? u * 0.050 : u * 0.036, Paint()..color = glove ?? skin);
+    final shoulder = Offset(side * u * 0.138, -u * 0.795);
+    final a1 = side * (0.16 + armsUp * 2.60) + swing * side * -0.5;
+    final elbow = shoulder + _dir(a1) * (u * 0.150);
+    final a2 = a1 + side * (0.10 - armsUp * 0.25);
+    final hand = elbow + _dir(a2) * (u * 0.140);
+    limb(elbow, hand, u * 0.058, u * 0.044, skin, skinSh);
+    limb(Offset.lerp(shoulder, elbow, 0.45)!, elbow, u * 0.066, u * 0.058, skin, skinSh);
+    final sleeveEnd = Offset.lerp(shoulder, elbow, 0.62)!;
+    quad(shoulder, sleeveEnd, u * 0.092, u * 0.082, 0, kit.sleeve);
+    quad(Offset.lerp(shoulder, sleeveEnd, 0.86)!, sleeveEnd, u * 0.086, u * 0.084, 0, trim);
+    c.drawCircle(hand, glove != null ? u * 0.040 : u * 0.028, Paint()..color = glove ?? skin);
   }
 
   arm(-1);
   arm(1);
 
   // ---- cabeza
-  c.drawLine(Offset(0, -u * 0.60), Offset(0, -u * 0.655), stroke(skinShade, u * 0.055, StrokeCap.butt));
-  final R = u * 0.150;
-  final head = Offset(0, -u * 0.790);
+  quad(Offset(0, -u * 0.835), Offset(0, -u * 0.880), u * 0.058, u * 0.052, 0, skinSh);
+  final hc = Offset(0, -u * 0.935);
+  final rx = u * 0.052, ry = u * 0.064;
+  final headRect = Rect.fromCenter(center: hc, width: rx * 2, height: ry * 2);
   final hairP = Paint()..color = hairC;
+  final hairSh = Paint()..color = _shade(hairC, 0.25);
 
-  // pelo que va detrás de la cara
-  if (style == 2) {
-    c.drawCircle(head + Offset(0, -R * 0.12), R * 1.28, hairP);
+  // pelo largo / voluminoso detrás de la cara
+  if (style == 4) {
+    c.drawOval(Rect.fromCenter(center: hc + Offset(0, ry * 0.7), width: rx * 2.5, height: ry * 2.9),
+        hairP);
   } else if (style == 3) {
-    c.drawOval(Rect.fromCenter(center: head + Offset(0, R * 0.55), width: R * 2.25, height: R * 2.6),
+    c.drawOval(Rect.fromCenter(center: hc + Offset(0, -ry * 0.15), width: rx * 2.7, height: ry * 2.5),
         hairP);
   }
   // orejas
-  if (!back) {
-    for (final sd in [-1.0, 1.0]) {
-      c.drawCircle(head + Offset(sd * R * 0.98, R * 0.06), R * 0.19, Paint()..color = skin);
-      c.drawCircle(head + Offset(sd * R * 0.98, R * 0.06), R * 0.09, Paint()..color = skinShade);
-    }
+  for (final sd in [-1.0, 1.0]) {
+    c.drawOval(Rect.fromCenter(center: hc + Offset(sd * rx * 0.98, ry * 0.10), width: rx * 0.34, height: ry * 0.42),
+        Paint()..color = skin);
   }
-  // cara con brillo
-  c.drawCircle(
-      head,
-      R,
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(-0.35, -0.4),
-          radius: 1.0,
-          colors: [Color.lerp(skin, Colors.white, 0.18)!, skin, skinShade],
-          stops: const [0, 0.6, 1],
-        ).createShader(Rect.fromCircle(center: head, radius: R)));
+  c.drawOval(headRect, Paint()..color = skin);
+  // sombra plana en el lado derecho de la cara
+  c.save();
+  c.clipPath(Path()..addOval(headRect));
+  c.drawRect(Rect.fromLTRB(hc.dx + rx * 0.30, hc.dy - ry, hc.dx + rx, hc.dy + ry),
+      Paint()..color = Colors.black.withOpacity(0.16));
+  c.restore();
 
   if (back) {
-    // nuca: todo cubierto de pelo
-    final cover = style == 4 ? hairC.withOpacity(0.75) : hairC;
-    c.drawCircle(head + Offset(0, -R * 0.02), R * 1.02, Paint()..color = cover);
-    if (style == 0) {
-      c.drawCircle(head + Offset(0, -R * 0.98), R * 0.30, hairP);
+    // nuca cubierta por el pelo
+    final cover = style == 2 ? hairC.withOpacity(0.8) : hairC;
+    final hr = Rect.fromCenter(center: hc + Offset(0, -ry * 0.10), width: rx * 2.06, height: ry * 1.86);
+    c.drawOval(hr, Paint()..color = cover);
+    c.drawRect(Rect.fromLTRB(hc.dx - rx * 0.9, hc.dy + ry * 0.62, hc.dx + rx * 0.9, hc.dy + ry * 0.9),
+        Paint()..color = skin);
+    if (style == 0 || style == 1) {
+      c.drawOval(Rect.fromCenter(center: hc + Offset(0, -ry * 0.98), width: rx * 1.0, height: ry * 0.6), hairP);
     }
   } else {
-    // ojos grandes
+    // rostro: cejas, ojos, nariz y boca sencillos
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = u * 0.006
+      ..color = const Color(0xFF2A1A12);
     for (final sd in [-1.0, 1.0]) {
-      final e = head + Offset(sd * R * 0.36, R * 0.02);
-      c.drawOval(Rect.fromCenter(center: e, width: R * 0.40, height: R * 0.46),
-          Paint()..color = Colors.white);
-      c.drawCircle(e + Offset(0, R * 0.02), R * 0.15, Paint()..color = const Color(0xFF4A2B14));
-      c.drawCircle(e + Offset(0, R * 0.02), R * 0.08, Paint()..color = const Color(0xFF120A06));
-      c.drawCircle(e + Offset(-R * 0.05, -R * 0.06), R * 0.045, Paint()..color = Colors.white);
-      // cejas
-      final b = Path()
-        ..moveTo(e.dx - R * 0.17, e.dy - R * 0.28)
-        ..quadraticBezierTo(e.dx, e.dy - R * 0.38 - sd * 0.0, e.dx + R * 0.17, e.dy - R * 0.27);
-      c.drawPath(
-          b,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = R * 0.07
-            ..strokeCap = StrokeCap.round
-            ..color = hairC);
-      // mejillas
-      c.drawCircle(head + Offset(sd * R * 0.58, R * 0.40), R * 0.13,
-          Paint()..color = const Color(0xFFE57A6A).withOpacity(0.22));
+      final e = hc + Offset(sd * rx * 0.46, ry * 0.02);
+      line.strokeWidth = u * 0.008;
+      c.drawLine(e + Offset(-rx * 0.26, -ry * 0.24), e + Offset(rx * 0.26, -ry * 0.28), line);
+      c.drawOval(Rect.fromCenter(center: e, width: rx * 0.34, height: ry * 0.17),
+          Paint()..color = const Color(0xFF1B120E));
     }
-    // nariz y sonrisa
-    c.drawOval(Rect.fromCenter(center: head + Offset(0, R * 0.30), width: R * 0.16, height: R * 0.11),
-        Paint()..color = skinShade);
-    final sm = Path()
-      ..moveTo(head.dx - R * 0.22, head.dy + R * 0.52)
-      ..quadraticBezierTo(head.dx, head.dy + R * 0.72, head.dx + R * 0.22, head.dy + R * 0.52);
-    c.drawPath(
-        sm,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = R * 0.06
-          ..strokeCap = StrokeCap.round
-          ..color = const Color(0xFF7A3B2E));
+    line
+      ..strokeWidth = u * 0.005
+      ..color = skinSh;
+    c.drawLine(hc + Offset(rx * 0.04, ry * 0.12), hc + Offset(rx * 0.10, ry * 0.40), line);
+    line
+      ..strokeWidth = u * 0.006
+      ..color = const Color(0xFF6A3328);
+    c.drawLine(hc + Offset(-rx * 0.26, ry * 0.62), hc + Offset(rx * 0.26, ry * 0.62), line);
     // pelo de frente
     switch (style) {
-      case 0: // copete
-        c.drawArc(Rect.fromCircle(center: head, radius: R * 1.03), pi * 1.02, pi * 0.96, true, hairP);
-        c.drawCircle(head + Offset(-R * 0.35, -R * 1.00), R * 0.30, hairP);
-        c.drawCircle(head + Offset(0, -R * 1.08), R * 0.34, hairP);
-        c.drawCircle(head + Offset(R * 0.38, -R * 0.96), R * 0.28, hairP);
+      case 0: // corto con copete
+        c.drawArc(headRect.inflate(u * 0.003), pi * 1.02, pi * 0.96, true, hairP);
+        c.drawOval(Rect.fromCenter(center: hc + Offset(-rx * 0.15, -ry * 1.00), width: rx * 1.5, height: ry * 0.55), hairP);
         break;
-      case 1: // corto con flequillo
-        c.drawArc(Rect.fromCircle(center: head, radius: R * 1.04), pi * 1.0, pi * 1.0, true, hairP);
-        c.drawRect(Rect.fromLTRB(head.dx - R * 1.0, head.dy - R * 0.55, head.dx + R * 1.0, head.dy - R * 0.38), hairP);
+      case 1: // corto con flequillo de lado
+        c.drawArc(headRect.inflate(u * 0.003), pi, pi, true, hairP);
+        final fr = Path()
+          ..moveTo(hc.dx - rx * 1.0, hc.dy - ry * 0.35)
+          ..quadraticBezierTo(hc.dx, hc.dy - ry * 0.80, hc.dx + rx * 1.0, hc.dy - ry * 0.35)
+          ..lineTo(hc.dx + rx * 1.0, hc.dy - ry * 0.98)
+          ..lineTo(hc.dx - rx * 1.0, hc.dy - ry * 0.98)
+          ..close();
+        c.drawPath(fr, hairP);
         break;
-      case 2: // rizado: flequillo de bolitas
+      case 2: // rapado
+        c.drawArc(headRect.inflate(u * 0.002), pi * 1.05, pi * 0.90, true,
+            Paint()..color = hairC.withOpacity(0.75));
+        break;
+      case 3: // rizado
         for (var i = 0; i < 5; i++) {
-          c.drawCircle(head + Offset((i - 2) * R * 0.34, -R * 0.78 + (i % 2) * R * 0.06),
-              R * 0.26, hairP);
+          c.drawCircle(hc + Offset((i - 2) * rx * 0.46, -ry * 0.86 + (i % 2) * ry * 0.06), rx * 0.34, hairP);
         }
         break;
-      case 3: // largo: raya al costado
-        c.drawArc(Rect.fromCircle(center: head, radius: R * 1.03), pi * 1.0, pi * 1.0, true, hairP);
-        c.drawOval(Rect.fromCenter(center: head + Offset(R * 0.45, -R * 0.62), width: R * 1.3, height: R * 0.55),
+      default: // largo con raya
+        c.drawArc(headRect.inflate(u * 0.003), pi, pi, true, hairP);
+        c.drawOval(Rect.fromCenter(center: hc + Offset(rx * 0.40, -ry * 0.78), width: rx * 1.5, height: ry * 0.6),
             hairP);
         break;
-      default: // rapado
-        c.drawArc(Rect.fromCircle(center: head, radius: R * 1.01), pi * 1.0, pi * 1.0, true,
-            Paint()..color = hairC.withOpacity(0.72));
-        break;
     }
+    c.drawArc(headRect, pi * 1.10, pi * 0.25, false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = u * 0.004
+          ..color = hairSh.color);
   }
 
   if (label != null && labelSize > 0) {
     final lum = kit.primary.computeLuminance();
     var fs = labelSize;
-    var tp = TextPainter(
-      text: TextSpan(
-          text: label,
-          style: TextStyle(
-              color: lum > 0.55 ? Colors.black87 : Colors.white,
-              fontSize: fs,
-              fontWeight: FontWeight.w900)),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final maxW = u * 0.22;
+    TextPainter mk(double size) => TextPainter(
+          text: TextSpan(
+              text: label,
+              style: TextStyle(
+                  color: lum > 0.5 ? _shade(trim, 0.2) : Colors.white.withOpacity(0.95),
+                  fontSize: size,
+                  fontWeight: FontWeight.w900)),
+          textDirection: TextDirection.ltr,
+        )..layout();
+    var tp = mk(fs);
+    final maxW = u * 0.24;
     if (tp.width > maxW) {
       fs = fs * maxW / tp.width;
-      tp = TextPainter(
-        text: TextSpan(
-            text: label,
-            style: TextStyle(
-                color: lum > 0.55 ? Colors.black87 : Colors.white,
-                fontSize: fs,
-                fontWeight: FontWeight.w900)),
-        textDirection: TextDirection.ltr,
-      )..layout();
+      tp = mk(fs);
     }
-    tp.paint(c, Offset(-tp.width / 2, -u * 0.545));
+    tp.paint(c, Offset(-tp.width / 2, -u * 0.765));
   }
   c.restore();
 }
@@ -630,7 +695,7 @@ class PenaltyScenePainter extends CustomPainter {
     const tKick = 0.385, tBall = 0.54;
 
     // ---- arquero: espera con pasitos y se lanza cuando el pateador golpea
-    final kh = h * 0.20;
+    final kh = h * 0.23;
     final keeperRest = Offset(w * 0.5, g.bottom - kh * 0.5 + h * 0.004);
     var kCenter = keeperRest;
     var kAng = 0.0;
@@ -667,6 +732,7 @@ class PenaltyScenePainter extends CustomPainter {
         spreadL: kSpread,
         spreadR: kSpread,
         look: lookOf(keeperName),
+        crest: true,
         glove: const Color(0xFFB6FF00));
     c.restore();
 
@@ -724,7 +790,7 @@ class PenaltyScenePainter extends CustomPainter {
     // ---- pateador (de espaldas, con su apellido): carrera, golpe y festejo
     final startH = h * 0.44, endH = h * 0.33;
     final startFeet = Offset(w * 0.20, h * 1.0);
-    final endFeet = Offset(spot.dx - endH * 0.10, spot.dy + endH * 0.15);
+    final endFeet = Offset(spot.dx - endH * 0.10, spot.dy + endH * 0.17);
     var rp = 0.0;
     var lL = 0.0, lR = 0.0, sR = 0.0;
     var arms = 0.12;
@@ -780,8 +846,9 @@ class PenaltyScenePainter extends CustomPainter {
         armsUp: arms,
         lean: leanK,
         look: lookOf(kickerName),
+        number: '${(lookOf(kickerName) % 11) + 1}',
         label: kickerName.toUpperCase(),
-        labelSize: kh2 * 0.045);
+        labelSize: kh2 * 0.040);
   }
 
   @override
@@ -828,7 +895,9 @@ class CelebrationPainter extends CustomPainter {
       drawPlayer(c, pos - Offset(0, bounce), hgt, i == 10 ? keeper : kit,
           swing: arrived ? 0.0 : sin(clock * 16 + i) * 1.0,
           armsUp: arrived ? 0.85 : 0.1,
-          look: lookOf('jugador$i'));
+          look: lookOf('jugador$i'),
+          crest: true,
+          number: '${i + 1}');
     }
     if (trophy) _drawTrophy(c, Offset(w * 0.5, h * 0.50), h * 0.20, clock);
     // confeti
@@ -902,7 +971,11 @@ class _KitIconPainter extends CustomPainter {
   _KitIconPainter(this.kit);
   @override
   void paint(Canvas c, Size s) {
-    drawPlayer(c, Offset(s.width / 2, s.height * 0.98), s.height * 0.98, kit);
+    c.drawRRect(
+        RRect.fromRectAndRadius(Offset.zero & s, Radius.circular(s.width * 0.14)),
+        Paint()..color = const Color(0xFFDCE3EE));
+    drawPlayer(c, Offset(s.width / 2, s.height * 0.96), s.height * 0.92, kit,
+        crest: true, look: 3 << 3);
   }
 
   @override
