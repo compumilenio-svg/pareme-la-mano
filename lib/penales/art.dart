@@ -367,26 +367,31 @@ void drawPlayer(Canvas c, Offset feet, double h, Kit kit,
         fillP(skin));
   } else {
     switch (style) {
-      case 0: // copete
+      case 0: // copete redondeado
         hairArc(pi, pi * 2);
-        poly([
-          Offset(hc.dx - rx * 0.9, hc.dy - ry * 0.55),
-          Offset(hc.dx - rx * 0.5, hc.dy - ry * 1.35),
-          Offset(hc.dx + rx * 0.4, hc.dy - ry * 1.40),
-          Offset(hc.dx + rx * 0.95, hc.dy - ry * 0.70),
-          Offset(hc.dx + rx * 0.95, hc.dy - ry * 0.30),
-          Offset(hc.dx, hc.dy - ry * 0.62),
-        ], hairC);
+        c.drawPath(
+            Path()
+              ..moveTo(hc.dx - rx * 0.98, hc.dy - ry * 0.40)
+              ..quadraticBezierTo(hc.dx - rx * 1.0, hc.dy - ry * 1.55, hc.dx - rx * 0.1, hc.dy - ry * 1.38)
+              ..quadraticBezierTo(hc.dx + rx * 0.95, hc.dy - ry * 1.30, hc.dx + rx * 1.0, hc.dy - ry * 0.40)
+              ..quadraticBezierTo(hc.dx, hc.dy - ry * 0.78, hc.dx - rx * 0.98, hc.dy - ry * 0.40)
+              ..close(),
+            fillP(hairC));
         break;
-      case 1: // corto con flequillo
+      case 1: // corto con flequillo (recortado al óvalo de la cabeza)
         hairArc(pi, pi * 2);
-        poly([
-          Offset(hc.dx - rx, hc.dy - ry * 0.30),
-          Offset(hc.dx, hc.dy - ry * 0.72),
-          Offset(hc.dx + rx, hc.dy - ry * 0.30),
-          Offset(hc.dx + rx, hc.dy - ry),
-          Offset(hc.dx - rx, hc.dy - ry),
-        ], hairC);
+        c.save();
+        c.clipPath(Path()
+          ..addOval(Rect.fromCenter(center: hc, width: rx * 2.1, height: ry * 2.1)));
+        c.drawPath(
+            Path()
+              ..moveTo(hc.dx - rx * 1.1, hc.dy - ry * 0.25)
+              ..quadraticBezierTo(hc.dx - rx * 0.2, hc.dy - ry * 0.85, hc.dx + rx * 1.1, hc.dy - ry * 0.30)
+              ..lineTo(hc.dx + rx * 1.1, hc.dy - ry * 1.2)
+              ..lineTo(hc.dx - rx * 1.1, hc.dy - ry * 1.2)
+              ..close(),
+            fillP(hairC));
+        c.restore();
         break;
       case 2: // rapado
         hairArc(pi * 1.04, pi * 1.96, 0.75);
