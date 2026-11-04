@@ -17,6 +17,7 @@ class TeamInfo {
   final int pattern; // ver KitSpec en art.dart
   final String gk;
   final List<String> takers; // 11 pateadores
+  final List<int> nums; // dorsales de los pateadores (opcional)
   final String barra; // estilo de hinchada: sur, samba, andino
   const TeamInfo({
     required this.key,
@@ -33,8 +34,12 @@ class TeamInfo {
     required this.pattern,
     required this.gk,
     required this.takers,
+    this.nums = const [],
     required this.barra,
   });
+
+  /// Dorsal del pateador i (si no hay dato, i + 1).
+  int numberOf(int i) => i >= 0 && i < nums.length ? nums[i] : i + 1;
 
   /// 0 (más fácil) a 1 (más difícil), según el ranking.
   double get strength => ((36 - rank) / 35).clamp(0.0, 1.0).toDouble();
@@ -55,8 +60,9 @@ const List<TeamInfo> kTeams = [
     primary: 0xFFFFFFFF, secondary: 0xFF1B3A8C, sleeve: 0xFF1B3A8C,
     shorts: 0xFFFFFFFF, socks: 0xFFFFFFFF, pattern: kPatSolid, barra: 'andino',
     gk: 'A. Domínguez',
-    takers: ['Deyverson', 'J. Corozo', 'K. Pineda', 'Y. Quiñónez', 'M. Estrada',
-      'A. Tobar', 'J. Pretell', 'P. Ortiz', 'E. Castillo', 'M. Weigandt', 'R. Adé'],
+    takers: ['M. Estrada', 'A. Alvarado', 'J. Medina', 'J. Corozo', 'Deyverson',
+      'F. Mina', 'L. Rodríguez', 'J. Pretell', 'G. Villamil', 'R. Adé', 'J. Carabalí'],
+    nums: [11, 10, 9, 13, 16, 17, 7, 8, 15, 4, 67],
   ),
   TeamInfo(
     key: 'bsc', name: 'Barcelona SC', country: 'Ecuador', flag: '🇪🇨', rank: 28,

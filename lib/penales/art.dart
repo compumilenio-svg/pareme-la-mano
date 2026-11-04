@@ -612,6 +612,7 @@ class PenaltyScenePainter extends CustomPainter {
   final int hover; // zona marcada por quien elige (-1 ninguna)
   final bool showZones;
   final String kickerName;
+  final String kickerNumber;
   final String keeperName;
   final double clock;
   final double cheer;
@@ -624,6 +625,7 @@ class PenaltyScenePainter extends CustomPainter {
     required this.hover,
     required this.showZones,
     required this.kickerName,
+    this.kickerNumber = '',
     this.keeperName = '',
     required this.clock,
     required this.cheer,
@@ -846,7 +848,7 @@ class PenaltyScenePainter extends CustomPainter {
         armsUp: arms,
         lean: leanK,
         look: lookOf(kickerName),
-        number: '${(lookOf(kickerName) % 11) + 1}',
+        number: kickerNumber.isEmpty ? '${(lookOf(kickerName) % 11) + 1}' : kickerNumber,
         label: kickerName.toUpperCase(),
         labelSize: kh2 * 0.040);
   }

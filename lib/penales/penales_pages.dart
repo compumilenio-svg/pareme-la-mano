@@ -775,6 +775,7 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
             hover: myPicking ? _selZone : -1,
             showZones: myPicking || (show && _shot.value < 0.36),
             kickerName: name,
+            kickerNumber: '${kTeams[kTeam].numberOf(shooter.clamp(0, kTeams[kTeam].takers.length - 1).toInt())}',
             keeperName: kTeams[gTeam].gk,
             clock: _now,
             cheer: cheer,
@@ -1070,25 +1071,33 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('¡Te toca patear! Elige pateador y toca la zona. Se envía solo al llegar a 0.', style: white),
+          Text('¡Te toca patear! Elige quién patea y toca la zona. Se envía solo al llegar a 0.', style: white),
           const SizedBox(height: 4),
-          SizedBox(
-            height: 38,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                for (var i = 0; i < team.takers.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: ChoiceChip(
-                      label: Text(team.takers[i], style: const TextStyle(fontSize: 12)),
+          const SizedBox(height: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 96),
+            child: SingleChildScrollView(
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                alignment: WrapAlignment.center,
+                children: [
+                  for (var i = 0; i < team.takers.length; i++)
+                    ChoiceChip(
+                      showCheckmark: false,
+                      visualDensity: VisualDensity.compact,
+                      label: Text('${team.numberOf(i)}  ${team.takers[i]}',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: i == sel ? FontWeight.bold : FontWeight.normal,
+                              decoration: free.contains(i) ? null : TextDecoration.lineThrough)),
                       selected: i == sel,
                       onSelected: free.contains(i)
                           ? (_) => setState(() => _selShooter = i)
                           : null,
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 4),
