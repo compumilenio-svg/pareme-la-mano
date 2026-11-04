@@ -22,12 +22,14 @@ class Penales {
   int mi; // número de partido dentro de la fase
   List<int> winners;
   List<String> results; // "fase,a,b,golesA,golesB,ganador"
-  String stage; // toss, pick, show, mend, tend
+  String stage; // lineup, toss, pick, show, mend, tend
   int a, b; // puestos del partido actual
   int first; // 0 patea primero el puesto a, 1 el b (sorteo de la moneda)
   List<int> goals;
   List<int> taken;
   List<List<int>> used;
+  List<String> lineups; // orden de tiro por puesto ("3,0,1,..."; vacío = el de la lista)
+  List<bool> lineupReady; // por lado, en la fase 'lineup'
   List<List<int>> kzHist;
   List<List<int>> shotRes; // 1 gol, 0 fallo, por lado
   int pickKick, pickShooter, pickKeep;
@@ -44,7 +46,9 @@ class Penales {
         mi = 0,
         winners = [],
         results = [],
-        stage = 'toss',
+        stage = 'lineup',
+        lineups = List<String>.filled(kCupTeams, ''),
+        lineupReady = [false, false],
         a = 0,
         b = 1,
         first = 0,
@@ -113,14 +117,22 @@ class Penales {
     return false;
   }
 
-  /// Pateadores libres de un lado (índices en la lista de la camiseta).
+  /// Orden de tiro del puesto (índices en la lista de la camiseta).
+  List<int> lineupOf(int slot) {
+    final t = teamOf(slot).takers.length;
+    final raw = _il(lineups[slot]);
+    final ok = raw.length == t && raw.toSet().length == t && raw.every((x) => x >= 0 && x < t);
+    return ok ? raw : [for (var i = 0; i < t; i++) i];
+  }
+
+  /// Pateadores libres de un lado, en el orden de tiro elegido.
   List<int> freeTakers(int side) {
-    final t = teamOf(slotOfSide(side)).takers.length;
+    final ord = lineupOf(slotOfSide(side));
     final free = [
-      for (var i = 0; i < t; i++)
+      for (final i in ord)
         if (!used[side].contains(i)) i
     ];
-    return free.isEmpty ? [for (var i = 0; i < t; i++) i] : free;
+    return free.isEmpty ? ord : free;
   }
 
   int defaultShooter(int side) => freeTakers(side).first;
@@ -157,7 +169,8 @@ class Penales {
         mi++;
         continue;
       }
-      stage = 'toss';
+      lineupReady = [isBot(a), isBot(b)];
+      stage = lineupReady[0] && lineupReady[1] ? 'toss' : 'lineup';
       return;
     }
   }
@@ -227,9 +240,28 @@ class Penales {
 
   bool humanKick(int zone, int shooter) {
     if (stage != 'pick' || pickKick >= 0 || zone < 0 || zone >= kZones) return false;
-    final free = freeTakers(kickerSide);
-    pickShooter = free.contains(shooter) ? shooter : free.first;
+    pickShooter = freeTakers(kickerSide).first; // patea quien toca en el orden
     pickKick = zone;
+    return true;
+  }
+
+  /// Guarda el orden de tiro de un puesto (debe ser una permutación válida).
+  bool setLineup(int slot, List<int> ord) {
+    if (stage != 'lineup' || (slot != a && slot != b)) return false;
+    final t = teamOf(slot).takers.length;
+    if (ord.length != t || ord.toSet().length != t || ord.any((x) => x < 0 || x >= t)) {
+      return false;
+    }
+    lineups[slot] = _si(ord);
+    return true;
+  }
+
+  /// La persona confirma su orden; con ambos listos pasa a la moneda.
+  bool confirmLineup(int slot) {
+    if (stage != 'lineup') return false;
+    if (slot == a) lineupReady[0] = true;
+    if (slot == b) lineupReady[1] = true;
+    if (lineupReady[0] && lineupReady[1]) stage = 'toss';
     return true;
   }
 
@@ -289,6 +321,10 @@ class Penales {
   /// Avanza la pantalla: moneda -> tiro -> resultado -> fin del partido -> siguiente.
   void advance() {
     switch (stage) {
+      case 'lineup':
+        lineupReady = [true, true];
+        stage = 'toss';
+        break;
       case 'toss':
         stage = 'pick';
         break;
@@ -325,6 +361,9 @@ class Penales {
         'taken': _si(taken),
         'used0': _si(used[0]),
         'used1': _si(used[1]),
+        'lineups': lineups,
+        'lr0': lineupReady[0],
+        'lr1': lineupReady[1],
         'kz0': _si(kzHist[0]),
         'kz1': _si(kzHist[1]),
         'res0': _si(shotRes[0]),
@@ -364,6 +403,10 @@ class Penales {
     g.goals = _il(m['goals'] as String);
     g.taken = _il(m['taken'] as String);
     g.used = [_il(m['used0'] as String), _il(m['used1'] as String)];
+    g.lineups = [
+      for (final x in (m['lineups'] as List? ?? List<String>.filled(kCupTeams, ''))) x as String
+    ];
+    g.lineupReady = [m['lr0'] == true, m['lr1'] == true];
     g.kzHist = [_il(m['kz0'] as String), _il(m['kz1'] as String)];
     g.shotRes = [_il(m['res0'] as String), _il(m['res1'] as String)];
     g.pickKick = (m['pickKick'] as num).toInt();

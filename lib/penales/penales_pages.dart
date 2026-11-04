@@ -377,7 +377,8 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
   bool _musicOn = false;
 
   int _selZone = -1;
-  int _selShooter = -1;
+  List<int> _lineupLocal = [];
+  int _lineupSeq = -1;
   int _autoSeq = -1;
   double _celStart = 0;
 
@@ -453,13 +454,15 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
 
   void _enter(Penales gm, String prev) {
     switch (gm.stage) {
+      case 'lineup':
+        _lineupSeq = -1;
+        break;
       case 'toss':
         _selZone = -1;
         Sfx.play('coin');
         break;
       case 'pick':
         _selZone = -1;
-        _selShooter = -1;
         _autoSeq = -1;
         Sfx.play('whistle');
         break;
@@ -543,6 +546,12 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
     }
     if (!_isHost) return;
     switch (gm.stage) {
+      case 'lineup':
+        if (el > 60000) _act((x) {
+          x.advance();
+          return true;
+        }, seq: gm.seq);
+        break;
       case 'toss':
         if (el > 3300) _act((x) {
           x.advance();
@@ -587,7 +596,7 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
 
   void _confirmKick(Penales gm) {
     if (_selZone < 0) return;
-    final shooter = _selShooter >= 0 ? _selShooter : gm.defaultShooter(gm.kickerSide);
+    final shooter = gm.defaultShooter(gm.kickerSide);
     final zone = _selZone;
     final seq = gm.seq;
     _act((x) => x.humanKick(zone, shooter), seq: seq, wait: true);
@@ -709,6 +718,12 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
   Widget _playView(Penales gm) {
     final mySlot = gm.slotOf(_uid);
     final inCelebration = gm.stage == 'mend' || gm.stage == 'tend';
+    if (gm.stage == 'lineup') {
+      return Column(children: [
+        if (!gm.finished) _scoreboard(gm),
+        Expanded(child: _lineupView(gm, mySlot)),
+      ]);
+    }
     return Column(
       children: [
         if (!gm.finished) _scoreboard(gm),
@@ -748,9 +763,7 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
     final gTeam = gm.teams[gSlot];
     final shooter = show
         ? gm.lastShooter
-        : (kSlot == mySlot && _selShooter >= 0
-            ? _selShooter
-            : (gm.pickShooter >= 0 ? gm.pickShooter : gm.defaultShooter(side)));
+        : (gm.pickShooter >= 0 ? gm.pickShooter : gm.defaultShooter(side));
     final name = kTeams[kTeam].takers[shooter.clamp(0, kTeams[kTeam].takers.length - 1).toInt()];
     final myPicking = gm.stage == 'pick' &&
         ((kSlot == mySlot && gm.pickKick < 0) || (gSlot == mySlot && gm.pickKeep < 0));
@@ -782,6 +795,104 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
           ),
         );
       },
+    );
+  }
+
+  Widget _lineupView(Penales gm, int mySlot) {
+    const white = TextStyle(color: Colors.white, fontSize: 15);
+    final mine = mySlot >= 0 && (mySlot == gm.a || mySlot == gm.b);
+    final side = mySlot == gm.a ? 0 : 1;
+    final ready = mine && gm.lineupReady[side];
+    final vs = '${gm.teamOf(gm.a).name} vs ${gm.teamOf(gm.b).name}';
+    if (!mine || ready) {
+      return Container(
+        color: const Color(0xFF0B1226),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.all(20),
+        child: Text(
+            ready
+                ? 'Orden de tiro listo. Esperando al rival…'
+                : 'Los equipos están eligiendo su orden de tiro…\n$vs',
+            textAlign: TextAlign.center,
+            style: white),
+      );
+    }
+    if (_lineupSeq != gm.seq || _lineupLocal.length != gm.teamOf(mySlot).takers.length) {
+      _lineupSeq = gm.seq;
+      _lineupLocal = List<int>.of(gm.lineupOf(mySlot));
+    }
+    final team = gm.teamOf(mySlot);
+    return Container(
+      color: const Color(0xFF0B1226),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: Column(
+        children: [
+          Text(vs, style: white.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Text('Elige el orden de tus pateadores: arrastra con ≡ para subir o bajar. Los 5 primeros patean la tanda; si hay empate siguen los demás. Tienes 1 minuto.',
+              textAlign: TextAlign.center,
+              style: white.copyWith(fontSize: 13, color: Colors.white70)),
+          const SizedBox(height: 6),
+          Expanded(
+            child: ReorderableListView(
+              buildDefaultDragHandles: false,
+              onReorder: (o, n) {
+                setState(() {
+                  if (n > o) n -= 1;
+                  final x = _lineupLocal.removeAt(o);
+                  _lineupLocal.insert(n, x);
+                });
+              },
+              children: [
+                for (var k = 0; k < _lineupLocal.length; k++)
+                  Container(
+                    key: ValueKey('lu${_lineupLocal[k]}'),
+                    margin: const EdgeInsets.symmetric(vertical: 2),
+                    decoration: BoxDecoration(
+                      color: k < 5 ? const Color(0xFF1F3A6E) : const Color(0xFF1A2442),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: ListTile(
+                      dense: true,
+                      visualDensity: VisualDensity.compact,
+                      leading: CircleAvatar(
+                        radius: 14,
+                        backgroundColor: k < 5 ? Colors.amber : Colors.white24,
+                        child: Text('${k + 1}',
+                            style: TextStyle(
+                                color: k < 5 ? Colors.black : Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13)),
+                      ),
+                      title: Text('${team.numberOf(_lineupLocal[k])}  ${team.takers[_lineupLocal[k]]}',
+                          style: white),
+                      trailing: ReorderableDragStartListener(
+                        index: k,
+                        child: const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Icon(Icons.drag_handle, color: Colors.white70),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () {
+                final ord = List<int>.of(_lineupLocal);
+                final seq = gm.seq;
+                _act((x) => x.setLineup(mySlot, ord) && x.confirmLineup(mySlot), seq: seq, wait: true);
+              },
+              icon: const Icon(Icons.check),
+              label: const Text('Listo, ver el arco'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1064,42 +1175,14 @@ class _PenalesPageState extends State<PenalesPage> with TickerProviderStateMixin
     final iKeep = gm.keeperSlot == mySlot;
     if (iKick && gm.pickKick < 0) {
       final team = gm.teamOf(mySlot);
-      final free = gm.freeTakers(gm.kickerSide);
-      final sel = _selShooter >= 0 && free.contains(_selShooter)
-          ? _selShooter
-          : gm.defaultShooter(gm.kickerSide);
+      final next = gm.defaultShooter(gm.kickerSide);
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('¡Te toca patear! Elige quién patea y toca la zona. Se envía solo al llegar a 0.', style: white),
-          const SizedBox(height: 4),
-          const SizedBox(height: 4),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 96),
-            child: SingleChildScrollView(
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                alignment: WrapAlignment.center,
-                children: [
-                  for (var i = 0; i < team.takers.length; i++)
-                    ChoiceChip(
-                      showCheckmark: false,
-                      visualDensity: VisualDensity.compact,
-                      label: Text('${team.numberOf(i)}  ${team.takers[i]}',
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: i == sel ? FontWeight.bold : FontWeight.normal,
-                              decoration: free.contains(i) ? null : TextDecoration.lineThrough)),
-                      selected: i == sel,
-                      onSelected: free.contains(i)
-                          ? (_) => setState(() => _selShooter = i)
-                          : null,
-                    ),
-                ],
-              ),
-            ),
-          ),
+          Text('¡Te toca patear! Toca la zona del arco. Se envía solo al llegar a 0.', style: white),
+          const SizedBox(height: 2),
+          Text('Patea: ${team.numberOf(next)}  ${team.takers[next]}',
+              style: white.copyWith(fontWeight: FontWeight.bold, color: Colors.amberAccent)),
           const SizedBox(height: 4),
           FilledButton.icon(
             onPressed: _selZone < 0 ? null : () => _confirmKick(gm),
