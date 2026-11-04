@@ -50,7 +50,12 @@ void main() {
         fillTeams([4], rng), ctrl, ['Yo', ...List<String>.filled(7, 'PC')], rng: rng);
     // la persona juega en algún momento
     check(!g.finished, 'debe esperar a la persona');
-    check(g.stage == 'toss', 'primero la moneda');
+    check(g.stage == 'lineup', 'primero el orden de tiro');
+    check(g.setLineup(g.slotOf('u1'), [for (var i = 10; i >= 0; i--) i]), 'orden válido');
+    check(g.lineupOf(g.slotOf('u1')).first == 10, 'orden guardado');
+    check(g.freeTakers(g.a == g.slotOf('u1') ? 0 : 1).first == 10, 'patea el primero del orden');
+    g.confirmLineup(g.slotOf('u1'));
+    check(g.stage == 'toss', 'luego la moneda');
     firstCounts[g.first]++;
     var guard = 0;
     while (!g.finished && guard++ < 5000) {
@@ -89,6 +94,7 @@ void main() {
     final g = Penales.create(fillTeams([0], rng),
         ['u1', 'bot', 'bot', 'bot', 'bot', 'bot', 'bot', 'bot'], List<String>.filled(8, 'x'),
         rng: rng);
+    g.advance(); // orden -> moneda
     g.advance(); // moneda -> pick
     final n = max(res0.length, res1.length);
     for (var i = 0; i < n * 2; i++) {
