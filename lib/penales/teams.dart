@@ -59,7 +59,7 @@ const List<TeamInfo> kTeams = [
     key: 'ldu', name: 'Liga de Quito', country: 'Ecuador', flag: '🇪🇨', rank: 10,
     primary: 0xFFFFFFFF, secondary: 0xFF1B3A8C, sleeve: 0xFF1B3A8C,
     shorts: 0xFFFFFFFF, socks: 0xFFFFFFFF, pattern: kPatSolid, barra: 'andino',
-    gk: 'A. Domínguez',
+    gk: 'G. Valle',
     takers: ['M. Estrada', 'A. Alvarado', 'J. Medina', 'J. Corozo', 'Deyverson',
       'F. Mina', 'L. Rodríguez', 'J. Pretell', 'G. Villamil', 'R. Adé', 'J. Carabalí'],
     nums: [11, 10, 9, 13, 16, 17, 7, 8, 15, 4, 67],
