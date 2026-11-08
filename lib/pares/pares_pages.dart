@@ -746,24 +746,49 @@ class _PairsMatchPageState extends State<PairsMatchPage> {
           child: Stack(
             children: [
               LayoutBuilder(builder: (context, c) {
-                final cols = max(3, (c.maxWidth / 88).floor());
+                // Se busca la cuadrícula que haga las cartas lo más grandes
+                // posible pero que quepan TODAS en pantalla, sin deslizar.
                 const gap = 6.0;
-                final size = (c.maxWidth - 16 - gap * (cols - 1)) / cols;
-                return GridView.builder(
-                  padding: const EdgeInsets.all(8),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: cols,
-                    mainAxisSpacing: gap,
-                    crossAxisSpacing: gap,
-                    childAspectRatio: 1,
-                  ),
-                  itemCount: game.faces.length,
-                  itemBuilder: (context, i) => _FlipCard(
-                    face: game.faces[i],
-                    up: game.isUp(i),
-                    owner: game.owner[i],
-                    size: size,
-                    onTap: myTurn && game.canFlip(i) ? () => _flip(i) : null,
+                const pad = 8.0;
+                final n = game.faces.length;
+                final availW = c.maxWidth - pad * 2;
+                final availH = c.maxHeight - pad * 2;
+                var cols = 3;
+                var size = 0.0;
+                for (var k = 2; k <= n; k++) {
+                  final rows = (n / k).ceil();
+                  final sw = (availW - gap * (k - 1)) / k;
+                  final sh = (availH - gap * (rows - 1)) / rows;
+                  final sz = min(sw, sh);
+                  if (sz > size) {
+                    size = sz;
+                    cols = k;
+                  }
+                }
+                size = size.clamp(24.0, 110.0).toDouble();
+                final gridW = size * cols + gap * (cols - 1);
+                return Center(
+                  child: SizedBox(
+                    width: gridW,
+                    child: GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      padding: EdgeInsets.zero,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: cols,
+                        mainAxisSpacing: gap,
+                        crossAxisSpacing: gap,
+                        childAspectRatio: 1,
+                      ),
+                      itemCount: n,
+                      itemBuilder: (context, i) => _FlipCard(
+                        face: game.faces[i],
+                        up: game.isUp(i),
+                        owner: game.owner[i],
+                        size: size,
+                        onTap: myTurn && game.canFlip(i) ? () => _flip(i) : null,
+                      ),
+                    ),
                   ),
                 );
               }),
