@@ -356,6 +356,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
 
   // Anfitrión
   Timer? drawTimer;
+  Timer? claimTimer;
   List<int> hostBalls = [];
   bool finalizing = false;
   int? hostEndAt;
@@ -404,6 +405,11 @@ class _BingoRoomPageState extends State<BingoRoomPage>
       });
     roomSub = svc.roomStream(code).listen(_onRoom);
     playersSub = svc.playersStream(code).listen(_onPlayers);
+    // El anfitrión revisa los ¡BINGO! cada segundo, sin depender de que llegue
+    // un cambio justo en el momento adecuado.
+    claimTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && isHost && status == 'playing' && !finalizing) _checkClaims();
+    });
   }
 
   @override
@@ -411,6 +417,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
     roomSub?.cancel();
     playersSub?.cancel();
     drawTimer?.cancel();
+    claimTimer?.cancel();
     ritualTimer?.cancel();
     debounce?.cancel();
     _ballAnim.dispose();
@@ -552,6 +559,15 @@ class _BingoRoomPageState extends State<BingoRoomPage>
     if (!mounted) return;
     setState(() => playerDocs = q.docs);
     _syncMine();
+    // Si el anfitrión rechazó mi ¡BINGO! (cartilla no válida), puedo volver a intentar.
+    final mine = _myDoc();
+    if (claimed && status == 'playing' && mine != null && mine['bingo'] == null) {
+      setState(() => claimed = false);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+            content: Text('Tu ¡BINGO! no fue válido: revisa que todos tus números hayan salido.')));
+    }
     if (isHost && status == 'playing' && !finalizing) _checkClaims();
   }
 
@@ -698,6 +714,8 @@ class _BingoRoomPageState extends State<BingoRoomPage>
   void _drawBall() {
     if (!mounted || !isHost || status != 'playing') return;
     if (room?['paused'] == true) return;
+    // Hay un ¡BINGO! por validar: el sorteo se detiene hasta resolverlo.
+    if (playerDocs.any((d) => d.data()['bingo'] != null)) return;
     if (hostBalls.length >= bingoBalls) {
       // Salieron las 75: se da un tiempo para que quien completó pueda
       // presionar ¡BINGO! antes de cerrar la partida.
@@ -720,7 +738,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
   void _checkClaims() {
     final drawn = hostBalls.toSet();
     QueryDocumentSnapshot<Map<String, dynamic>>? best;
-    var bestAt = 1 << 62;
+    var bestAt = 9000000000000000; // (no usar 1 << 62: en la web se desborda)
     for (final d in playerDocs) {
       final b = d.data()['bingo'];
       if (b == null) continue;
@@ -737,7 +755,7 @@ class _BingoRoomPageState extends State<BingoRoomPage>
       } else if (raw is int) {
         at = raw;
       } else {
-        continue; // la hora del servidor aún no llegó; se revisa en la próxima
+        at = 8000000000000000; // la hora del servidor aún no llegó: gana solo si es el único
       }
       if (at < bestAt) {
         bestAt = at;
