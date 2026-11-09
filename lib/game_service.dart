@@ -295,10 +295,26 @@ class GameService {
       return bad * 2 > voters.length;
     }
 
-    bool counts_(Map<String, dynamic> d, String id, int ci, String w) =>
-        d['cheated'] != true &&
-        isValidWord(w, letter) &&
-        !invalidByVote(id, ci);
+    // Palabra que el filtro automático no reconoce pero la mayoría de los
+    // OTROS jugadores marcó como "Está bien" en la revisión.
+    bool okByVote(String targetId, int catIdx) {
+      final voters = players.docs.where((q) => q.id != targetId).toList();
+      if (voters.isEmpty) return false;
+      var ok = 0;
+      for (final q in voters) {
+        final v = Map<String, dynamic>.from(q.data()['votes'] ?? {});
+        if (v['$targetId|$catIdx|ok'] == true) ok++;
+      }
+      return ok * 2 > voters.length;
+    }
+
+    bool counts_(Map<String, dynamic> d, String id, int ci, String w) {
+      if (d['cheated'] == true) return false;
+      final n = normalize(w);
+      if (n.length < 2 || !n.startsWith(letter.toLowerCase())) return false;
+      if (!looksLikeWord(w) && !okByVote(id, ci)) return false;
+      return !invalidByVote(id, ci);
+    }
 
     // Cuenta cuántos jugadores escribieron cada palabra válida.
     final counts = <String, Map<String, int>>{};

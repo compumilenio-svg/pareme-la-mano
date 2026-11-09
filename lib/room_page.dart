@@ -132,7 +132,12 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
   bool _allComplete() {
     final letter = room!['letter'] as String;
     return ctrls.isNotEmpty &&
-        ctrls.values.every((c) => isValidWord(c.text, letter));
+        ctrls.values.every((c) {
+          // Solo se exige que empiece con la letra; si "parece palabra" lo
+          // deciden los jugadores en la revisión (botón "Está bien").
+          final w = normalize(c.text);
+          return w.length >= 2 && w.startsWith(letter.toLowerCase());
+        });
   }
 
   Future<void> _flush({bool submitted = false}) async {
@@ -561,6 +566,11 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
     final invalid = myVotes[key] == true;
     final mine = pid == svc.uid;
     final startsOk = normalize(word).startsWith(letter.toLowerCase());
+    // Palabra que el filtro automático no reconoce pero que empieza bien:
+    // los jugadores pueden decidir que "Está bien".
+    final canApprove = !formatOk && startsOk && normalize(word).length >= 2;
+    final approved = myVotes['$key|ok'] == true;
+    final bad = invalid || (!formatOk && !approved);
     return ListTile(
       dense: true,
       title: Text(cat),
@@ -568,11 +578,13 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
         formatOk
             ? word
             : (startsOk
-                ? '$word  (no parece una palabra: no vale)'
+                ? (approved
+                    ? '$word  (tú dices que está bien)'
+                    : '$word  (no parece una palabra; si está bien, toca "Está bien")')
                 : '$word  (no empieza con $letter: no vale)'),
         style: TextStyle(
-          decoration: (invalid || !formatOk) ? TextDecoration.lineThrough : null,
-          color: (invalid || !formatOk) ? Colors.red : null,
+          decoration: bad ? TextDecoration.lineThrough : null,
+          color: bad ? Colors.red : null,
         ),
       ),
       trailing: (formatOk && !mine)
@@ -586,7 +598,18 @@ class _RoomPageState extends State<RoomPage> with WidgetsBindingObserver {
                       svc.saveVotes(code, myVotes);
                     },
             )
-          : null,
+          : (canApprove && !mine)
+              ? FilterChip(
+                  label: const Text('Está bien'),
+                  selected: approved,
+                  onSelected: votedLocal
+                      ? null
+                      : (v) {
+                          setState(() => myVotes['$key|ok'] = v);
+                          svc.saveVotes(code, myVotes);
+                        },
+                )
+              : null,
     );
   }
 
