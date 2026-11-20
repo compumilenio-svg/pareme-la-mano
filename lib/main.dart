@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'bingo/bingo_pages.dart';
+import 'mente/mente_pages.dart';
 import 'chess/chess_pages.dart';
 import 'cuarenta/cuarenta_page.dart';
 import 'galleta/galleta_pages.dart';
@@ -161,6 +162,17 @@ class MenuPage extends StatelessWidget {
                     'Bot cantor con voz · cartillas, premio y bolas en vivo · en línea'),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const BingoMenuPage()),
+                ),
+              ),
+            ),
+            Card(
+              child: ListTile(
+                leading: const Text('🕵️', style: TextStyle(fontSize: 32)),
+                title: const Text('Mente brillante'),
+                subtitle: const Text(
+                    'Culpable, patrones, estrategia, pensamiento lateral y acertijos · solo, sin internet'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const MenteMenuPage()),
                 ),
               ),
             ),
