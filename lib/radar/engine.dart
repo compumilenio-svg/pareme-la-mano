@@ -248,6 +248,99 @@ class Fleet {
     throw StateError('No se pudo colocar la flota');
   }
 
+  Fleet copy() {
+    final f = Fleet();
+    for (var c = 0; c < kCells; c++) {
+      f.cellMod[c] = cellMod[c];
+      f.hp[c] = hp[c];
+      f.shot[c] = shot[c];
+    }
+    f.modKind.addAll(modKind);
+    for (final cs in modCells) {
+      f.modCells.add(List<int>.from(cs));
+    }
+    return f;
+  }
+
+  /// Forma del módulo [m] normalizada (esquina superior izquierda en 0,0).
+  List<List<int>> shapeOf(int m) {
+    var minR = 1 << 20, minC = 1 << 20;
+    for (final c in modCells[m]) {
+      if (c ~/ kN < minR) minR = c ~/ kN;
+      if (c % kN < minC) minC = c % kN;
+    }
+    return [
+      for (final c in modCells[m]) [c ~/ kN - minR, c % kN - minC],
+    ];
+  }
+
+  bool _place(int m, List<List<int>> shape, int r0, int c0) {
+    final cells = <int>[];
+    for (final p in shape) {
+      final r = r0 + p[0], k = c0 + p[1];
+      if (r < 0 || r >= kN || k < 0 || k >= kN) return false;
+      final c = r * kN + k;
+      if (cellMod[c] >= 0 && cellMod[c] != m) return false;
+      cells.add(c);
+    }
+    for (final old in modCells[m]) {
+      cellMod[old] = -1;
+      hp[old] = 0;
+    }
+    modCells[m] = cells;
+    for (final c in cells) {
+      cellMod[c] = m;
+      hp[c] = kKinds[modKind[m]].hp;
+    }
+    return true;
+  }
+
+  static (int, int) _dims(List<List<int>> shape) {
+    var h = 0, w = 0;
+    for (final p in shape) {
+      if (p[0] + 1 > h) h = p[0] + 1;
+      if (p[1] + 1 > w) w = p[1] + 1;
+    }
+    return (h, w);
+  }
+
+  /// Esquina superior izquierda (fila, columna) del módulo [m].
+  (int, int) originOf(int m) {
+    var r0 = 1 << 20, c0 = 1 << 20;
+    for (final c in modCells[m]) {
+      if (c ~/ kN < r0) r0 = c ~/ kN;
+      if (c % kN < c0) c0 = c % kN;
+    }
+    return (r0, c0);
+  }
+
+  /// Alto y ancho (en casillas) del módulo [m].
+  (int, int) dimsOf(int m) => _dims(shapeOf(m));
+
+  /// Mueve el módulo para que su esquina superior izquierda quede en (r0, c0)
+  /// (se ajusta para que quepa). false si choca con otro módulo.
+  bool move(int m, int r0, int c0) {
+    final shape = shapeOf(m);
+    final d = _dims(shape);
+    final rr = r0 < 0 ? 0 : (r0 > kN - d.$1 ? kN - d.$1 : r0);
+    final cc = c0 < 0 ? 0 : (c0 > kN - d.$2 ? kN - d.$2 : c0);
+    return _place(m, shape, rr, cc);
+  }
+
+  /// Gira el módulo 90°. false si no hay espacio.
+  bool rotate(int m) {
+    final shape = _rot(shapeOf(m), 1);
+    var r0 = 1 << 20, c0 = 1 << 20;
+    for (final c in modCells[m]) {
+      if (c ~/ kN < r0) r0 = c ~/ kN;
+      if (c % kN < c0) c0 = c % kN;
+    }
+    final d = _dims(shape);
+    if (r0 > kN - d.$1) r0 = kN - d.$1;
+    if (c0 > kN - d.$2) c0 = kN - d.$2;
+    return _place(m, shape, r0, c0);
+  }
+
   bool _realAlive(int c) =>
       cellMod[c] >= 0 && kKinds[modKind[cellMod[c]]].real && !shot[c];
 
