@@ -4,8 +4,8 @@ import 'package:audioplayers/audioplayers.dart';
 import '../music.dart';
 import '../sfx.dart';
 
-/// Ambiente de Batalla naval: sonar de fondo en bucle y, de vez en cuando,
-/// mensajes de radio de onda corta en momentos al azar.
+/// Ambiente de Batalla naval: de vez en cuando, mensajes de radio en inglés
+/// en momentos al azar (sin sonar de fondo).
 class RadarAmbience {
   static const int _clips = 9;
   static final Random _rng = Random();
@@ -17,7 +17,6 @@ class RadarAmbience {
   static void start() {
     if (_on) return;
     _on = true;
-    Ambient.start('radar_sonar', volume: 0.25);
     _schedule(first: true);
   }
 
@@ -30,12 +29,11 @@ class RadarAmbience {
     try {
       r?.dispose();
     } catch (_) {}
-    Ambient.stop();
   }
 
   static void _schedule({bool first = false}) {
     _timer?.cancel();
-    final secs = first ? 6 + _rng.nextInt(10) : 14 + _rng.nextInt(24);
+    final secs = first ? 4 + _rng.nextInt(7) : 14 + _rng.nextInt(24);
     _timer = Timer(Duration(seconds: secs), () async {
       if (!_on) return;
       await _playClip();
