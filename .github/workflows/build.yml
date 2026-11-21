@@ -56,12 +56,12 @@ jobs:
           echo "${{ github.sha }}" > build/web/build_id.txt
           sed -i "s/__BUILD_ID__/${{ github.sha }}/" build/web/update.js
 
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: build/web
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   build:
     runs-on: ubuntu-latest
