@@ -69,13 +69,46 @@ class ShipsPainter extends CustomPainter {
     }
     for (final c in burns) {
       final cx = (c % kN + 0.5) * cell, cy = (c ~/ kN + 0.5) * cell;
-      canvas.drawCircle(Offset(cx, cy), cell * 0.22, Paint()..color = Colors.black.withOpacity(0.35));
-      final fl = 0.55 + 0.3 * sin(sec * 9 + c);
-      canvas.drawCircle(
-          Offset(cx, cy), cell * 0.11, Paint()..color = const Color(0xFFFF6D00).withOpacity(fl));
+      _fire(canvas, c, cx, cy, sec);
     }
     for (final sm in smokes) {
       _smoke(canvas, sm.cell, sm.level, sec);
+    }
+  }
+
+  /// Casilla en llamas: resplandor + tres lenguas de fuego que parpadean.
+  void _fire(Canvas canvas, int idx, double cx, double cy, double sec) {
+    final pulse = 0.5 + 0.5 * sin(sec * 7 + idx * 1.3);
+    final glow = Rect.fromCircle(center: Offset(cx, cy), radius: cell * 0.62);
+    canvas.drawCircle(
+        Offset(cx, cy),
+        cell * 0.62,
+        Paint()
+          ..shader = RadialGradient(colors: [
+            const Color(0xFFFF6D00).withOpacity(0.45 + 0.2 * pulse),
+            const Color(0x00FF6D00),
+          ]).createShader(glow));
+    final baseY = cy + cell * 0.32;
+    final offs = [-0.2, 0.0, 0.2];
+    final hs = [0.5, 0.72, 0.46];
+    for (var i = 0; i < 3; i++) {
+      final ph = sec * (6.0 + i * 1.7) + idx * 2.1 + i * 1.9;
+      final flick = 0.85 + 0.15 * sin(ph) + 0.08 * sin(ph * 2.3);
+      final h = cell * hs[i] * flick;
+      final w = cell * (i == 1 ? 0.2 : 0.15);
+      final x = cx + cell * offs[i];
+      final sway = sin(ph * 0.8) * cell * 0.06;
+      void flame(double sc, Color col) {
+        final hh = h * sc, ww = w * sc;
+        final path = Path()
+          ..moveTo(x + sway * sc, baseY - hh)
+          ..cubicTo(x + ww * 0.9, baseY - hh * 0.4, x + ww * 0.7, baseY, x, baseY)
+          ..cubicTo(x - ww * 0.7, baseY, x - ww * 0.9, baseY - hh * 0.4, x + sway * sc, baseY - hh);
+        canvas.drawPath(path, Paint()..color = col);
+      }
+      flame(1.0, const Color(0xE6FF3D00));
+      flame(0.72, const Color(0xF2FF9100));
+      flame(0.42, const Color(0xFFFFEB3B));
     }
   }
 
@@ -288,6 +321,53 @@ class ShipsPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant ShipsPainter old) => true;
+}
+
+/// Imagen pequeña de un barco para el panel de la flota (apagada si ya se hundió).
+class ShipIconPainter extends CustomPainter {
+  final int kind;
+  final bool down;
+  ShipIconPainter(this.kind, this.down);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final im = ShipSprites.get(kind);
+    final rect = Offset.zero & size;
+    if (im == null) {
+      canvas.drawRRect(RRect.fromRectAndRadius(rect.deflate(2), const Radius.circular(4)),
+          Paint()..color = down ? Colors.black26 : Colors.blueGrey);
+    } else {
+      final ar = im.width / im.height;
+      var w = size.width, h = w / ar;
+      if (h > size.height) {
+        h = size.height;
+        w = h * ar;
+      }
+      final dst = Rect.fromCenter(center: rect.center, width: w, height: h);
+      canvas.drawImageRect(
+          im,
+          Rect.fromLTWH(0, 0, im.width.toDouble(), im.height.toDouble()),
+          dst,
+          Paint()
+            ..filterQuality = FilterQuality.high
+            ..colorFilter = down
+                ? const ColorFilter.mode(Color(0xAA000000), BlendMode.srcATop)
+                : null);
+    }
+    if (down) {
+      final x = Paint()
+        ..color = const Color(0xFFD32F2F)
+        ..strokeWidth = 2.4
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(Offset(size.width * 0.08, size.height * 0.1),
+          Offset(size.width * 0.92, size.height * 0.9), x);
+      canvas.drawLine(Offset(size.width * 0.92, size.height * 0.1),
+          Offset(size.width * 0.08, size.height * 0.9), x);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant ShipIconPainter old) => true;
 }
 
 /// Ilustración del menú: portaaviones de guerra al atardecer lanzando un misil.

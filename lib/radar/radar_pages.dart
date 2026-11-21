@@ -1301,21 +1301,6 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
   // ------------------------------------------------------------------
 
   Widget _hud() {
-    final chips = <Widget>[];
-    for (var k = 0; k < kShips.length; k++) {
-      final down = view.sunkShips.contains(k);
-      chips.add(Padding(
-        padding: const EdgeInsets.only(right: 6),
-        child: Opacity(
-          opacity: down ? 0.35 : 1,
-          child: Text('▮' * kShips[k].len,
-              style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.red.shade700,
-                  decoration: down ? TextDecoration.lineThrough : null)),
-        ),
-      ));
-    }
     final mt = myTurn;
     return Container(
       color: mt ? Colors.indigo.shade50 : Colors.grey.shade200,
@@ -1340,14 +1325,66 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
               ],
             ),
           ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              const Text('Flota enemiga', style: TextStyle(fontSize: 10, color: Colors.black54)),
-              Wrap(children: chips),
-            ],
+        ],
+      ),
+    );
+  }
+
+  /// Panel de la flota enemiga: imagen de cada barco y sus casillas (rojas = hundido).
+  Widget _fleetStrip() {
+    final items = <Widget>[];
+    for (var k = 0; k < kShips.length; k++) {
+      final down = view.sunkShips.contains(k);
+      final len = kShips[k].len;
+      items.add(Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: len * 13.0 + 6,
+              height: 20,
+              child: CustomPaint(painter: ShipIconPainter(k, down)),
+            ),
+            const SizedBox(height: 2),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < len; i++)
+                  Container(
+                    width: 11,
+                    height: 11,
+                    margin: const EdgeInsets.symmetric(horizontal: 1),
+                    decoration: BoxDecoration(
+                      color: down ? const Color(0xFFD32F2F) : Colors.white,
+                      border: Border.all(
+                          color: down ? const Color(0xFF8E0000) : Colors.blueGrey.shade400,
+                          width: 1),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                    child: down
+                        ? const Center(child: Text('🔥', style: TextStyle(fontSize: 7)))
+                        : null,
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ));
+    }
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFECEFF1),
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(right: 4),
+            child: Text('Flota enemiga', style: TextStyle(fontSize: 10, color: Colors.black54)),
           ),
+          ...items,
         ],
       ),
     );
@@ -1434,6 +1471,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
             : Column(
                 children: [
                   _hud(),
+                  _fleetStrip(),
                   Expanded(
                     child: LayoutBuilder(
                       builder: (context, box) {
