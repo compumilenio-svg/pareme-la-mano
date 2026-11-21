@@ -60,6 +60,10 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: build/web
+      # Espera a que GitHub registre el artefacto (evita el error intermitente
+      # "No artifacts named github-pages were found").
+      - name: Esperar registro del artefacto
+        run: sleep 25
       - id: deployment
         uses: actions/deploy-pages@v5
 
