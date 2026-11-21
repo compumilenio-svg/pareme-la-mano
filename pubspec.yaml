@@ -27,6 +27,7 @@ flutter:
     - assets/sounds/
     - assets/music/
     - assets/radar/
+    - assets/radar/ships/
   fonts:
     - family: PatrickHand
       fonts:
