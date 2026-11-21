@@ -5,147 +5,139 @@ void check(bool c, String m) {
   if (!c) throw 'FALLÓ: $m';
 }
 
+void checkFleet(Fleet f) {
+  check(f.shipCells.length == 5, 'cinco barcos');
+  final seen = <int>{};
+  for (var s = 0; s < 5; s++) {
+    final cells = f.shipCells[s];
+    check(cells.length == kShips[s].len, 'largo del barco');
+    final horiz = cells[1] - cells[0] == 1;
+    for (var i = 0; i < cells.length; i++) {
+      final c = cells[i];
+      check(c >= 0 && c < kCells, 'dentro del tablero');
+      check(seen.add(c), 'sin solapes');
+      check(f.cellShip[c] == s, 'índice coherente');
+      if (i > 0) {
+        check(cells[i] - cells[i - 1] == (horiz ? 1 : kN), 'recto');
+        if (horiz) check(cells[i] ~/ kN == cells[0] ~/ kN, 'misma fila');
+      }
+    }
+    check(!f.decoys.any(cells.contains), 'señuelo sobre barco');
+  }
+  var n = 0;
+  for (var c = 0; c < kCells; c++) {
+    if (f.cellShip[c] >= 0) n++;
+  }
+  check(n == 17, 'casillas fantasma');
+}
+
 void main() {
-  // Colocación válida: sin solapes, formas y cantidades correctas
+  // Colocación válida
   for (var s = 0; s < 500; s++) {
     final f = Fleet.random(Random(s));
-    check(f.modKind.length == 6, 'seis módulos');
-    var real = 0;
-    final seen = <int>{};
-    for (var m = 0; m < f.modKind.length; m++) {
-      final cells = f.modCells[m];
-      check(cells.length == kKinds[f.modKind[m]].shape.length, 'tamaño del módulo');
-      for (final c in cells) {
-        check(c >= 0 && c < kCells, 'dentro del tablero');
-        check(seen.add(c), 'sin solapes');
-      }
-      if (kKinds[f.modKind[m]].real) real += cells.length;
+    checkFleet(f);
+    check(f.decoyCount == 3, 'tres señuelos');
+    check(f.shieldCount == 2, 'dos escudos');
+    check(f.ready, 'lista');
+    check(!f.defeated && f.shipsAlive == 5, 'flota nueva');
+  }
+
+  // Escudo: bloquea UN disparo, se destruye y luego el barco puede dañarse
+  {
+    final f = Fleet.random(Random(3));
+    final s = [for (var i = 0; i < 5; i++) if (f.shield[i]) i].first;
+    final c = f.shipCells[s].first;
+    final o1 = f.fire(c);
+    check(o1.res == kShield, 'escudo bloquea');
+    check(!f.shot[c], 'la casilla no queda disparada');
+    check(!f.shield[s], 'el escudo se destruye');
+    final o2 = f.fire(c);
+    check(o2.res == kHit, 'ahora sí impacta');
+  }
+
+  // Hundir un barco y señuelo
+  {
+    final f = Fleet.random(Random(9));
+    for (var s = 0; s < 5; s++) {
+      f.shield[s] = false;
     }
-    check(real == 16, 'casillas reales = 16 (hay $real)');
-    check(!f.defeated, 'flota nueva no está derrotada');
-    check(f.realAlive == 4, 'cuatro objetivos');
+    final cells = List<int>.from(f.shipCells[4]);
+    Outcome? last;
+    for (final c in cells) {
+      last = f.fire(c);
+    }
+    check(last!.sunk == 4 && last.sunkCells.length == 2, 'hundido');
+    final d = f.decoys.first;
+    final od = f.fire(d);
+    check(od.res == kDecoy, 'señuelo');
+    check(f.shipsAlive == 4, 'quedan 4');
+    final back = Outcome.fromMap(last.toMap());
+    check(back.sunk == 4 && back.sunkCells.length == 2 && back.cell == last.cell, 'serialización');
+    final view = EnemyView()..apply(last.cell, last);
+    check(view.sunkShips.contains(4) && view.st[cells.first] == 4, 'vista');
+    final vd = EnemyView()..apply(d, od);
+    check(vd.st[d] == 2, 'el señuelo parece un impacto');
   }
 
-  // Blindado: dos impactos por casilla
-  final f = Fleet.random(Random(3));
-  final mb = f.modKind.indexOf(3);
-  final c0 = f.modCells[mb].first;
-  check(f.fire(c0).result == kShield, 'primer impacto abre el escudo');
-  check(f.fire(c0).result == kHit, 'segundo impacto destruye la casilla');
-  check(f.fire(c0).result == kAgain, 'casilla repetida');
-
-  // Módulo destruido por completo
-  final g = Fleet.random(Random(4));
-  final mt = g.modKind.indexOf(1);
-  ShotOut? last;
-  for (final c in g.modCells[mt]) {
-    last = g.fire(c);
-  }
-  check(last!.modDown && last.modKind == 1 && last.modCells.length == 4, 'Torre destruida');
-
-  // Mina y baliza
-  final h = Fleet.random(Random(5));
-  final mine = h.modCells[h.modKind.indexOf(kKindMine)].first;
-  final o1 = h.apply(RAction(kFire, mine), Random(1));
-  check(o1.hitMine, 'mina detectada');
-  var (t, s) = nextTurn(0, o1, 0);
-  check(t == 1 && s == 1, 'mina: el rival juega dos veces');
-  (t, s) = nextTurn(t, o1.hitMine ? const Outcome([], 0, -1, false) : o1, s);
-  check(t == 1 && s == 0, 'segundo turno seguido del rival');
-  (t, s) = nextTurn(t, const Outcome([], 0, -1, false), s);
-  check(t == 0 && s == 0, 'vuelve el turno');
-  final bea = h.modCells[h.modKind.indexOf(kKindBeacon)].first;
-  final o2 = h.apply(RAction(kFire, bea), Random(1));
-  check(o2.hitBeacon && o2.reveal >= 0, 'baliza revela una casilla');
-  check(h.cellMod[o2.reveal] >= 0 && kKinds[h.modKind[h.cellMod[o2.reveal]]].real, 'revela casilla real');
-  (t, s) = nextTurn(1, o2, 0);
-  check(t == 1, 'baliza: turno extra');
-
-  // Escaneo y onda cuentan solo casillas reales vivas
-  final k = Fleet.random(Random(6));
-  var total = 0;
-  for (var r = 0; r < kN; r++) {
-    total += k.apply(RAction(kWave, r, 0), Random(1)).count;
-  }
-  check(total == 16, 'suma de filas = 16');
-  total = 0;
-  for (var c = 0; c < kN; c++) {
-    total += k.apply(RAction(kWave, c, 1), Random(1)).count;
-  }
-  check(total == 16, 'suma de columnas = 16');
-
-  // Serialización ida y vuelta
-  final oo = k.apply(RAction(kMissile, 27), Random(2));
-  final back = Outcome.fromMap(oo.toMap());
-  check(back.shots.length == oo.shots.length && back.defeated == oo.defeated, 'serialización');
-  final ab = RAction.fromMap(const RAction(kWave, 3, 1).toMap());
-  check(ab.kind == kWave && ab.a == 3 && ab.b == 1, 'serialización de acción');
-
-  // Edición manual de la flota: mover y girar conservan formas y sin solapes
+  // Edición: mover, girar, señuelos y escudos
   {
     final rng = Random(77);
     for (var s = 0; s < 200; s++) {
       final f = Fleet.random(rng);
-      for (var i = 0; i < 60; i++) {
-        final m = rng.nextInt(6);
-        final before = f.modCells[m].length;
-        if (rng.nextBool()) {
-          f.rotate(m);
-        } else {
-          f.move(m, rng.nextInt(10) - 1, rng.nextInt(10) - 1);
+      for (var i = 0; i < 80; i++) {
+        final sh = rng.nextInt(5);
+        switch (rng.nextInt(4)) {
+          case 0:
+            f.rotateShip(sh);
+            break;
+          case 1:
+            f.moveShip(sh, rng.nextInt(12) - 1, rng.nextInt(12) - 1);
+            break;
+          case 2:
+            f.toggleDecoy(rng.nextInt(kCells));
+            break;
+          default:
+            f.toggleShield(f.shipCells[sh].first);
         }
-        check(f.modCells[m].length == before, 'el módulo conserva su tamaño');
-        final seen = <int>{};
-        for (var k = 0; k < 6; k++) {
-          for (final c in f.modCells[k]) {
-            check(c >= 0 && c < kCells && seen.add(c), 'sin solapes ni salirse');
-            check(f.cellMod[c] == k, 'índice coherente');
-          }
-        }
-        var n = 0;
-        for (var c = 0; c < kCells; c++) {
-          if (f.cellMod[c] >= 0) n++;
-        }
-        check(n == seen.length, 'sin casillas fantasma');
+        checkFleet(f);
+        check(f.decoyCount <= 3 && f.shieldCount <= 2, 'límites');
       }
-      check(f.copy().realAlive == f.realAlive, 'copia');
+      check(f.copy().shipsAlive == f.shipsAlive, 'copia');
     }
   }
 
-  // Partidas completas PC contra PC: terminan y son rápidas
+  // Partidas completas PC contra PC (también con señuelos y escudos)
   for (final level in [0, 1]) {
-    var totalTurns = 0;
-    const games = 150;
-    for (var i = 0; i < games; i++) {
-      final rng = Random(i * 31 + level);
-      final fl = [Fleet.random(rng), Fleet.random(rng)];
+    var total = 0;
+    const games = 300;
+    for (var g = 0; g < games; g++) {
+      final rng = Random(1000 + g + level * 100000);
+      final fleets = [Fleet.random(rng), Fleet.random(rng)];
       final views = [EnemyView(), EnemyView()];
       final brains = [BotBrain(rng, level: level), BotBrain(rng, level: level)];
-      final ammo = [Ammo(), Ammo()];
-      var turn = 0, streak = 0, n = 0, winner = -1;
-      while (winner < 0) {
-        check(n++ < 400, 'partida infinita');
-        final a = brains[turn].think(views[turn], ammo[turn]);
-        if (a.kind != kFire) {
-          check(ammo[turn].left(a.kind) > 0, 'habilidad sin munición');
-        }
-        if (a.kind == kFire) check(views[turn].canFire(a.a), 'disparo inválido ${a.a}');
-        final o = fl[1 - turn].apply(a, rng);
-        ammo[turn].use(a.kind);
-        views[turn].apply(a, o);
-        brains[turn].observe(a, o, views[turn]);
+      var turn = rng.nextInt(2);
+      var turns = 0;
+      var over = false;
+      while (!over) {
+        check(turns < 1000, 'la partida no termina');
+        final c = brains[turn].think(views[turn]);
+        check(views[turn].canFire(c), 'disparo válido');
+        final o = fleets[1 - turn].fire(c);
+        views[turn].apply(c, o);
+        brains[turn].observe(c, o, views[turn]);
+        turns++;
         if (o.defeated) {
-          winner = turn;
-          break;
+          over = true;
+        } else {
+          turn = 1 - turn;
         }
-        (turn, streak) = nextTurn(turn, o, streak);
       }
-      check(fl[1 - winner].defeated, 'el perdedor debe estar derrotado');
-      totalTurns += n;
+      total += turns;
     }
-    final avg = totalTurns / games;
-    print('Nivel $level: ${avg.toStringAsFixed(1)} turnos por partida (ambos jugadores)');
-    check(avg < 140, 'partidas demasiado largas');
+    final avg = total / games;
+    print('Nivel $level: promedio ${avg.toStringAsFixed(1)} disparos por partida');
+    check(avg < (level == 0 ? 190 : 140), 'la PC es demasiado lenta (nivel $level)');
   }
-  print('Pruebas de Asalto Radar: OK');
+
+  print('Todas las pruebas de Batalla naval pasaron.');
 }
