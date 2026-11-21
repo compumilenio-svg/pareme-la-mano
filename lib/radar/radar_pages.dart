@@ -873,8 +873,8 @@ class _RadarMatchPageState extends State<RadarMatchPage> {
         duration: const Duration(milliseconds: 220),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 260),
-          width: size,
-          height: size,
+          width: size - 2,
+          height: size - 2,
           margin: const EdgeInsets.all(1),
           decoration: BoxDecoration(
             color: bg,
@@ -971,8 +971,8 @@ class _RadarMatchPageState extends State<RadarMatchPage> {
     }
     return AnimatedContainer(
       duration: const Duration(milliseconds: 260),
-      width: size,
-      height: size,
+      width: size - 1.6,
+      height: size - 1.6,
       margin: const EdgeInsets.all(0.8),
       decoration: BoxDecoration(
         color: bg,
