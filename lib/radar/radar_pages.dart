@@ -4,9 +4,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../game_service.dart';
+import '../music.dart';
 import '../sfx.dart';
 import 'engine.dart';
 import 'fx.dart';
+import 'ambience.dart';
 import 'ships.dart';
 
 // ======================================================================
@@ -99,7 +101,14 @@ class _RadarMenuPageState extends State<RadarMenuPage> with SingleTickerProvider
       AnimationController(vsync: this, duration: const Duration(seconds: 7))..repeat();
 
   @override
+  void initState() {
+    super.initState();
+    RadarAmbience.start();
+  }
+
+  @override
   void dispose() {
+    RadarAmbience.stop();
     _anim.dispose();
     nameCtrl.dispose();
     codeCtrl.dispose();
@@ -189,7 +198,7 @@ class _RadarMenuPageState extends State<RadarMenuPage> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Batalla naval')),
+      appBar: AppBar(title: const Text('Batalla naval'), actions: const [MusicButton()]),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),
@@ -1458,6 +1467,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
       appBar: AppBar(
         title: Text(widget.online ? 'vs $enemyName' : 'vs PC'),
         actions: [
+          const MusicButton(),
           IconButton(
             tooltip: 'Rendirme',
             onPressed: _confirmSurrender,
