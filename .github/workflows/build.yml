@@ -5,10 +5,8 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+# Mínimo privilegio: cada trabajo declara solo lo que necesita.
+permissions: {}
 
 concurrency:
   group: pages
@@ -18,6 +16,10 @@ jobs:
   web:
     name: Versión web (se actualiza sola)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -41,6 +43,9 @@ jobs:
           cp web_assets/update.js web/update.js
           sed -i 's#<title>[^<]*</title>#<title>Noche de juegos</title>#' web/index.html
           sed -i 's#</body>#<script src="update.js"></script></body>#' web/index.html
+          # Endurecimiento web: CSP, referrer y anti-clickjacking (GitHub Pages no permite cabeceras propias)
+          cp web_assets/security_head.html /tmp/security_head.html
+          sed -i '/<head>/r /tmp/security_head.html' web/index.html
           sed -i -E 's/"name": "[^"]*"/"name": "Noche de juegos"/; s/"short_name": "[^"]*"/"short_name": "Noche de juegos"/; s/"background_color": "[^"]*"/"background_color": "#5E35B1"/; s/"theme_color": "[^"]*"/"theme_color": "#5E35B1"/' web/manifest.json
 
       - run: flutter pub get
@@ -60,6 +65,8 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -82,6 +89,8 @@ jobs:
           sed -i -E 's/minSdk\s*=\s*flutter\.minSdkVersion/minSdk = 23/; s/minSdkVersion\s+flutter\.minSdkVersion/minSdkVersion 23/' android/app/build.gradle* || true
           # Bloquea la pantalla dividida (anti-trampa)
           sed -i 's/<activity/<activity android:resizeableActivity="false"/' android/app/src/main/AndroidManifest.xml
+          # Endurecimiento Android: sin copias de seguridad de datos, sin tráfico sin cifrar
+          sed -i 's/<application/<application android:allowBackup="false" android:fullBackupContent="false" android:usesCleartextTraffic="false"/' android/app/src/main/AndroidManifest.xml
           # Nombre visible de la app
           sed -i -E 's/android:label="[^"]*"/android:label="Noche de juegos"/' android/app/src/main/AndroidManifest.xml
 
@@ -100,7 +109,10 @@ jobs:
         run: dart run tool/penales_test.dart
       - name: Pruebas de Mente brillante
         run: dart run tool/mente_test.dart
-      - run: flutter build apk --release
+      - name: Pruebas de Asalto Radar
+        run: dart run tool/radar_test.dart
+      - name: Compilar APK (ofuscado)
+        run: flutter build apk --release --obfuscate --split-debug-info=build/symbols
 
       - uses: actions/upload-artifact@v4
         with:
