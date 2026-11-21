@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'bot.dart';
 import 'engine.dart';
 import 'card_fx.dart';
@@ -140,6 +141,7 @@ class _CuarentaSetupPageState extends State<CuarentaSetupPage> {
               const SizedBox(height: 12),
               TextField(
                 controller: nameCtrl,
+                inputFormatters: [LengthLimitingTextInputFormatter(20)],
                 textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(
                   labelText: 'Tu nombre',
