@@ -81,6 +81,37 @@ void main() {
   final ab = RAction.fromMap(const RAction(kWave, 3, 1).toMap());
   check(ab.kind == kWave && ab.a == 3 && ab.b == 1, 'serialización de acción');
 
+  // Edición manual de la flota: mover y girar conservan formas y sin solapes
+  {
+    final rng = Random(77);
+    for (var s = 0; s < 200; s++) {
+      final f = Fleet.random(rng);
+      for (var i = 0; i < 60; i++) {
+        final m = rng.nextInt(6);
+        final before = f.modCells[m].length;
+        if (rng.nextBool()) {
+          f.rotate(m);
+        } else {
+          f.move(m, rng.nextInt(10) - 1, rng.nextInt(10) - 1);
+        }
+        check(f.modCells[m].length == before, 'el módulo conserva su tamaño');
+        final seen = <int>{};
+        for (var k = 0; k < 6; k++) {
+          for (final c in f.modCells[k]) {
+            check(c >= 0 && c < kCells && seen.add(c), 'sin solapes ni salirse');
+            check(f.cellMod[c] == k, 'índice coherente');
+          }
+        }
+        var n = 0;
+        for (var c = 0; c < kCells; c++) {
+          if (f.cellMod[c] >= 0) n++;
+        }
+        check(n == seen.length, 'sin casillas fantasma');
+      }
+      check(f.copy().realAlive == f.realAlive, 'copia');
+    }
+  }
+
   // Partidas completas PC contra PC: terminan y son rápidas
   for (final level in [0, 1]) {
     var totalTurns = 0;
