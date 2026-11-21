@@ -18,8 +18,9 @@ class ShipSprites {
     for (var i = 0; i < _files.length; i++) {
       try {
         final data = await rootBundle.load('assets/radar/ships/${_files[i]}.png');
-        final img = await ui.decodeImageFromList(data.buffer.asUint8List());
-        _img[i] = img;
+        final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+        final frame = await codec.getNextFrame();
+        _img[i] = frame.image;
       } catch (_) {
         // si falla, se queda el dibujo vectorial
       }
