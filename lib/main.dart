@@ -1,8 +1,10 @@
 import 'dart:math';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'bingo/bingo_pages.dart';
 import 'mente/mente_pages.dart';
+import 'radar/radar_pages.dart';
 import 'chess/chess_pages.dart';
 import 'cuarenta/cuarenta_page.dart';
 import 'galleta/galleta_pages.dart';
@@ -176,6 +178,17 @@ class MenuPage extends StatelessWidget {
                 ),
               ),
             ),
+            Card(
+              child: ListTile(
+                leading: const Text('📡', style: TextStyle(fontSize: 32)),
+                title: const Text('Asalto Radar'),
+                subtitle: const Text(
+                    'Batalla táctica con módulos ocultos, escudos, trampas y habilidades · PC o en línea 1 contra 1'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const RadarMenuPage()),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -262,6 +275,7 @@ class _HomePageState extends State<HomePage> {
                   const SizedBox(height: 24),
                   TextField(
                     controller: nameCtrl,
+                inputFormatters: [LengthLimitingTextInputFormatter(20)],
                     textCapitalization: TextCapitalization.words,
                     decoration: const InputDecoration(
                       labelText: 'Tu nombre',
