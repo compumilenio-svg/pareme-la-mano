@@ -56,7 +56,7 @@ jobs:
         with:
           path: build/web
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   build:
     runs-on: ubuntu-latest
