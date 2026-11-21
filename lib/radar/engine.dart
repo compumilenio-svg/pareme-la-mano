@@ -250,6 +250,7 @@ class EnemyView {
   /// 0 desconocido · 1 agua · 2 impacto · 3 escudo bloqueó · 4 barco hundido
   final List<int> st = List.filled(kCells, 0);
   final Set<int> sunkShips = {};
+  final Map<int, List<int>> sunkCells = {};
 
   bool canFire(int c) => st[c] == 0 || st[c] == 3;
 
@@ -268,6 +269,7 @@ class EnemyView {
     }
     if (o.sunk >= 0) {
       sunkShips.add(o.sunk);
+      sunkCells[o.sunk] = List<int>.from(o.sunkCells);
       for (final x in o.sunkCells) {
         st[x] = 4;
       }

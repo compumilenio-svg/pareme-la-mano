@@ -7,6 +7,7 @@ import '../game_service.dart';
 import '../sfx.dart';
 import 'engine.dart';
 import 'fx.dart';
+import 'ships.dart';
 
 // ======================================================================
 // Servicio en línea (1 contra 1). Cada dispositivo guarda su flota en secreto
@@ -323,6 +324,8 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
   late final AnimationController waveCtl =
       AnimationController(vsync: this, duration: const Duration(seconds: 7))..repeat();
   FxInfo? fx;
+  final Map<int, int> sinkAtMine = {};
+  final Map<int, int> sinkAtEnemy = {};
   Fleet? shownFleet;
   Future<void>? flightF;
   Future<void> _chain = Future<void>.value();
@@ -503,6 +506,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
 
   void _applyMine(Outcome o) {
     view.apply(o.cell, o);
+    if (o.sunk >= 0) sinkAtEnemy[o.sunk] = DateTime.now().millisecondsSinceEpoch;
     myTurns++;
     final d = _describe(true, o);
     _feedback(true, o);
@@ -610,6 +614,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
     if (!mounted) return;
     final d = _describe(false, o);
     _feedback(false, o);
+    if (o.sunk >= 0) sinkAtMine[o.sunk] = DateTime.now().millisecondsSinceEpoch;
     setState(() {
       shownFleet = post;
       _flash(flashMine, [o.cell, ...o.sunkCells]);
@@ -835,7 +840,9 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
     setState(() => sel = c);
   }
 
-  Widget _oceanBox(double side, double radius, Color border, Widget child) => Container(
+  Widget _oceanBox(double side, double radius, Color border, Widget child,
+          {Widget? overlay}) =>
+      Container(
         width: side,
         height: side,
         decoration: BoxDecoration(
@@ -848,6 +855,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
             children: [
               Positioned.fill(child: CustomPaint(painter: OceanPainter(waveCtl))),
               child,
+              if (overlay != null) Positioned.fill(child: IgnorePointer(child: overlay)),
             ],
           ),
         ),
@@ -863,16 +871,14 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
         icon = '•';
         break;
       case 2:
-        bg = const Color(0xFFE64A19);
-        icon = '💥';
+        bg = const Color(0x55E64A19);
         break;
       case 3:
         bg = const Color(0xFF00838F);
         icon = '🛡️';
         break;
       case 4:
-        bg = const Color(0xFF6D1B1B);
-        icon = '🔥';
+        bg = const Color(0x44000000);
         break;
     }
     final isSel = c == sel;
@@ -919,6 +925,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
             ]),
         ],
       ),
+      overlay: _enemyOverlay((side - 4) / kN),
     );
   }
 
@@ -928,13 +935,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
     Color bg = _kWaterCell;
     String icon = '';
     if (s >= 0) {
-      bg = shot ? const Color(0xFF5D4037) : const Color(0xFF607D8B);
-      if (shot) {
-        icon = '💥';
-      } else if (f.shield[s]) {
-        bg = const Color(0xFF00838F);
-        if (f.shipCells[s].first == c) icon = '🛡️';
-      }
+      bg = shot ? const Color(0x55E64A19) : const Color(0x33FFFFFF);
     } else if (f.decoys.contains(c)) {
       icon = '🎭';
       if (shot) bg = const Color(0xFF3E2723);
@@ -943,7 +944,6 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
       icon = '•';
     }
     final picked = edit && s >= 0 && s == selShip;
-    final shielded = s >= 0 && !shot && f.shield[s];
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       width: size - 1.6,
@@ -956,9 +956,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
             ? Border.all(color: Colors.amber, width: 2.5)
             : flashMine.contains(c)
                 ? Border.all(color: Colors.redAccent, width: 2.5)
-                : shielded
-                    ? Border.all(color: Colors.cyanAccent, width: 1.5)
-                    : Border.all(color: Colors.white12, width: 0.5),
+                : Border.all(color: Colors.white12, width: 0.5),
       ),
       alignment: Alignment.center,
       child: Text(icon, style: TextStyle(fontSize: size * 0.5)),
@@ -978,7 +976,53 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
             ]),
         ],
       ),
+      overlay: _mineOverlay(f, (side - 4) / kN),
     );
+  }
+
+  Widget _mineOverlay(Fleet f, double cell) {
+    final ships = <ShipSpec>[];
+    final smokes = <SmokeSrc>[];
+    final burns = <int>{};
+    for (var s = 0; s < f.shipCells.length; s++) {
+      final cells = f.shipCells[s];
+      final hits = cells.where((c) => f.shot[c]).length;
+      final sunk = hits == cells.length;
+      ships.add(ShipSpec(s, cells, f.shield[s] && !sunk, hits, sunk, sinkAtMine[s]));
+      for (final c in cells) {
+        if (f.shot[c]) {
+          burns.add(c);
+          smokes.add(SmokeSrc(c, sunk ? 3 : min(3, hits)));
+        }
+      }
+    }
+    return CustomPaint(
+        painter: ShipsPainter(ships: ships, smokes: smokes, burns: burns, cell: cell, tick: waveCtl));
+  }
+
+  Widget _enemyOverlay(double cell) {
+    final ships = <ShipSpec>[];
+    final smokes = <SmokeSrc>[];
+    final burns = <int>{};
+    view.sunkCells.forEach((idx, cells) {
+      ships.add(ShipSpec(idx, cells, false, cells.length, true, sinkAtEnemy[idx]));
+    });
+    for (var c = 0; c < kCells; c++) {
+      final st = view.st[c];
+      if (st == 2) {
+        var adj = 0;
+        for (final n in neighbors4(c)) {
+          if (view.st[n] == 2) adj++;
+        }
+        burns.add(c);
+        smokes.add(SmokeSrc(c, min(3, 1 + adj)));
+      } else if (st == 4) {
+        burns.add(c);
+        smokes.add(SmokeSrc(c, 3));
+      }
+    }
+    return CustomPaint(
+        painter: ShipsPainter(ships: ships, smokes: smokes, burns: burns, cell: cell, tick: waveCtl));
   }
 
   /// Pantalla dividida: enemigo arriba, mis barcos abajo, y un cañón circular
