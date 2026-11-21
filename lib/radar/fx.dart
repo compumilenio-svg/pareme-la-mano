@@ -26,7 +26,7 @@ class OceanPainter extends CustomPainter {
         ..shader = const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFF0E3A66), Color(0xFF082447), Color(0xFF04132A)],
+          colors: [Color(0xFF1A446E), Color(0xFF142F50), Color(0xFF101F35)],
         ).createShader(rect),
     );
     final p = Paint()

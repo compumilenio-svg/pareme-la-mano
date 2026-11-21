@@ -300,7 +300,7 @@ class _RadarMenuPageState extends State<RadarMenuPage> with SingleTickerProvider
 // ======================================================================
 
 const int _kTurnMs = 25000;
-const Color _kWaterCell = Color(0x6614325C);
+const Color _kWaterCell = Color(0x66203C64);
 const int _kFlightMs = 800;
 const int _kImpactMs = 900;
 
@@ -905,7 +905,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
     String icon = '';
     switch (st) {
       case 1:
-        bg = const Color(0xFF0B1B33);
+        bg = const Color(0xFF17263D);
         icon = '•';
         break;
       case 2:
@@ -978,7 +978,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
       icon = '🎭';
       if (shot) bg = const Color(0xFF3E2723);
     } else if (shot) {
-      bg = const Color(0xFF0B1B33);
+      bg = const Color(0xFF17263D);
       icon = '•';
     }
     final picked = edit && s >= 0 && s == selShip;
