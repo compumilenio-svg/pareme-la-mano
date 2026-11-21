@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../game_service.dart';
 import '../sfx.dart';
 import 'engine.dart';
@@ -163,6 +164,7 @@ class _BingoMenuPageState extends State<BingoMenuPage> {
             const SizedBox(height: 16),
             TextField(
               controller: nameCtrl,
+                inputFormatters: [LengthLimitingTextInputFormatter(20)],
               textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(
                   labelText: 'Tu nombre', border: OutlineInputBorder()),
