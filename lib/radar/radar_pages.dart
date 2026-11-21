@@ -46,7 +46,7 @@ class RadarOnline {
     await svc.db.runTransaction((tx) async {
       final snap = await tx.get(ref);
       if (!snap.exists || snap.data()!['game'] != 'radar') {
-        err = 'No existe una sala de Asalto Radar con ese código.';
+        err = 'No existe una sala de Batalla naval con ese código.';
         return;
       }
       final d = snap.data()!;
@@ -154,18 +154,14 @@ class _RadarMenuPageState extends State<RadarMenuPage> {
         title: const Text('Cómo se juega'),
         content: const SingleChildScrollView(
           child: Text(
-            'Cada jugador esconde 6 módulos en un tablero de 8×8.\n\n'
-            '🎯 Objetivos (gana quien destruya los 4 primero):\n'
-            '💠 Núcleo (cruz de 5)\n🗼 Torre (línea de 4)\n📡 Antena (L de 3)\n'
-            '🛡️ Blindado (2×2): cada casilla aguanta 2 impactos.\n\n'
-            '⚠️ Señuelos:\n'
-            '💣 Mina: quien la toca pierde su siguiente turno.\n'
-            '🎁 Baliza: turno extra y te revela una casilla enemiga.\n\n'
-            'En tu turno elige una acción y una casilla, y pulsa el botón grande:\n'
-            '• Disparo: 1 casilla, sin límite.\n'
-            '• 🔍 Escaneo (×2): cuántos objetivos hay en un área de 3×3.\n'
-            '• ⚡ Onda (×2): cuántos objetivos hay en una fila o columna.\n'
-            '• 🚀 Misil (×1): impacta una cruz de 5 casillas.\n\n'
+            'Cada jugador tiene 5 barcos (de 5, 4, 3, 3 y 2 casillas) en un tablero de 10×10. '
+            'Gana quien hunda toda la flota rival primero.\n\n'
+            'Antes de empezar ubicas tu flota: arrastra los barcos, gíralos, y pon:\n'
+            '🎭 3 señuelos en el agua: si el rival les dispara, ¡cree que impactó un barco!\n'
+            '🛡️ 2 escudos sobre barcos: el escudo aguanta el primer disparo que reciba ese barco; '
+            'ese turno el rival falla, el escudo se destruye y desde entonces el barco puede dañarse.\n\n'
+            'Arriba está el tablero enemigo y abajo el tuyo. En el centro de cada tablero hay un cañón '
+            'circular: toca una casilla del tablero enemigo y pulsa Disparar para lanzar el misil.\n\n'
             'Tienes 25 segundos por turno; si se acaba, la app dispara por ti.',
           ),
         ),
@@ -181,15 +177,15 @@ class _RadarMenuPageState extends State<RadarMenuPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Asalto Radar')),
+      appBar: AppBar(title: const Text('Batalla naval')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            const Center(child: Text('📡', style: TextStyle(fontSize: 56))),
+            const Center(child: Text('🚢', style: TextStyle(fontSize: 56))),
             const SizedBox(height: 8),
             const Text(
-              'Esconde tus módulos, escanea el tablero rival y destruye sus 4 objetivos antes que él. Partidas de 3 a 5 minutos.',
+              'Batalla naval con cañones, señuelos y escudos. Hunde los 5 barcos rival antes que él.',
               textAlign: TextAlign.center,
             ),
             TextButton.icon(
@@ -266,7 +262,6 @@ class _RadarMenuPageState extends State<RadarMenuPage> {
 // ======================================================================
 
 const int _kTurnMs = 25000;
-const Color _kWater = Color(0xFF14325C);
 const Color _kWaterCell = Color(0x6614325C);
 const int _kFlightMs = 800;
 const int _kImpactMs = 900;
@@ -291,28 +286,23 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
   final rng = Random();
   late Fleet mine = Fleet.random(rng);
   final view = EnemyView();
-  final ammo = Ammo();
 
   // contra la PC
   Fleet? botFleet;
   EnemyView? botView;
   BotBrain? brain;
-  Ammo? botAmmo;
 
   int mySeat = 0;
   int turn = 0;
-  int streak = 0;
   String enemyName = 'PC';
   String status = 'playing'; // setup | lobby | playing | finished
   int winner = -1;
 
-  int tool = kFire;
   int sel = -1;
-  int wvert = 0;
   bool busy = false;
   int myTurns = 0;
 
-  String banner = 'Elige una casilla y dispara';
+  String banner = 'Toca una casilla enemiga y dispara';
   Color bannerColor = Colors.blueGrey;
   int bannerKey = 0;
   final Set<int> flashEnemy = {};
@@ -333,21 +323,21 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
   late final AnimationController waveCtl =
       AnimationController(vsync: this, duration: const Duration(seconds: 7))..repeat();
   FxInfo? fx;
-  bool fxActive = false;
-  bool showMine = false;
   Fleet? shownFleet;
   Future<void>? flightF;
   Future<void> _chain = Future<void>.value();
 
   // ubicar la flota
-  int selMod = -1;
-  int dragMod = -1;
+  int setupMode = 0; // 0 barcos · 1 señuelos · 2 escudos
+  int selShip = -1;
+  int dragShip = -1;
   int grabR = 0;
   int grabC = 0;
   int lastDragCell = -1;
   bool movedDrag = false;
   bool lockScroll = false;
-  String setupMsg = 'Arrastra un módulo, o toca uno y luego la casilla donde lo quieres.';
+  Offset downPos = Offset.zero;
+  String setupMsg = 'Arrastra un barco, o toca uno y luego la casilla donde lo quieres.';
 
   // en línea
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? sub;
@@ -371,7 +361,6 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
       botFleet = Fleet.random(rng);
       botView = EnemyView();
       brain = BotBrain(rng, level: widget.level);
-      botAmmo = Ammo();
     }
     ticker = Timer.periodic(const Duration(milliseconds: 250), (_) => _tick());
   }
@@ -426,101 +415,54 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
         if (view.canFire(c)) c,
     ];
     if (cand.isEmpty) return;
-    tool = kFire;
     sel = cand[rng.nextInt(cand.length)];
     _commit();
   }
 
-  String _kindName(int k) => kKinds[k].name;
-
-  /// Texto del resultado. [byMe] = lo hice yo.
-  (String, Color) _describe(bool byMe, RAction a, Outcome o) {
-    if (a.kind == kScan) {
+  /// Texto del resultado. [byMe] = lo disparé yo.
+  (String, Color) _describe(bool byMe, Outcome o) {
+    final name = cellName(o.cell);
+    if (o.res == kShield) {
       return byMe
-          ? (
-              '🔍 Escaneo en ${cellName(a.a)}: ${o.count} ${o.count == 1 ? 'módulo' : 'módulos'} en el área',
-              Colors.teal
-            )
-          : ('🔍 El rival escaneó tu zona de ${cellName(a.a)}', Colors.blueGrey);
+          ? ('🛡️ ¡Escudo en $name! Tu disparo fue bloqueado y el escudo se destruyó',
+              Colors.cyan.shade700)
+          : ('🛡️ ¡Tu escudo te salvó en $name! Se destruyó', Colors.cyan.shade700);
     }
-    if (a.kind == kWave) {
-      final name = a.b == 0 ? 'la fila ${a.a + 1}' : 'la columna ${'ABCDEFGH'[a.a]}';
+    if (o.sunk >= 0) {
+      final n = kShips[o.sunk].name;
       return byMe
-          ? ('⚡ Onda: ${o.count} ${o.count == 1 ? 'módulo' : 'módulos'} en $name', Colors.teal)
-          : ('⚡ El rival lanzó una onda sobre $name', Colors.blueGrey);
+          ? ('💥 ¡Hundiste el $n!', Colors.green.shade700)
+          : ('💥 ¡El rival hundió tu $n!', Colors.red.shade700);
     }
-    final prefix = a.kind == kMissile ? '🚀 ' : '';
-    ShotOut? downReal, mine_, beacon, shield, hit, miss;
-    var hits = 0;
-    for (final s in o.shots) {
-      if (s.result == kHit || s.result == kShield) hits++;
-      if (s.modDown && s.modKind >= 0 && s.modKind < kRealKinds) downReal = s;
-      if (s.result == kMine) mine_ = s;
-      if (s.result == kBeacon) beacon = s;
-      if (s.result == kShield) shield = s;
-      if (s.result == kHit) hit = s;
-      if (s.result == kMiss) miss = s;
-    }
-    if (downReal != null) {
-      final n = _kindName(downReal.modKind);
+    if (o.res == kDecoy) {
       return byMe
-          ? ('$prefix💥 ¡$n destruido!', Colors.green.shade700)
-          : ('$prefix💥 ¡El rival destruyó tu $n!', Colors.red.shade700);
+          ? ('💥 ¡Impacto en $name!', Colors.deepOrange)
+          : ('🎭 ¡Tu señuelo en $name engañó al rival!', Colors.green.shade700);
     }
-    if (mine_ != null) {
+    if (o.res == kHit) {
       return byMe
-          ? ('$prefix💣 ¡Trampa! Pierdes tu siguiente turno', Colors.red.shade700)
-          : ('$prefix💣 El rival pisó una trampa: ¡juegas dos veces!', Colors.green.shade700);
+          ? ('💥 ¡Impacto en $name!', Colors.deepOrange)
+          : ('💥 El rival te impactó en $name', Colors.deepOrange);
     }
-    if (beacon != null) {
-      return byMe
-          ? ('$prefix🎁 ¡Baliza! Turno extra y una pista 🎯', Colors.amber.shade800)
-          : ('$prefix🎁 El rival halló una baliza: repite turno', Colors.amber.shade800);
-    }
-    if (shield != null) {
-      return byMe
-          ? ('$prefix🛡️ ¡Escudo activado! Aguanta un impacto más', Colors.cyan.shade700)
-          : ('$prefix🛡️ ¡Tu escudo resistió!', Colors.cyan.shade700);
-    }
-    if (hit != null) {
-      final extra = a.kind == kMissile ? ' ($hits casillas)' : '';
-      return byMe
-          ? ('$prefix💥 ¡Impacto!$extra', Colors.deepOrange)
-          : ('$prefix💥 El rival te impactó$extra', Colors.deepOrange);
-    }
-    if (miss != null) {
-      return byMe
-          ? ('$prefix💧 Agua…', Colors.blueGrey)
-          : ('$prefix💧 El rival falló', Colors.blueGrey);
-    }
-    return ('', Colors.blueGrey);
+    return byMe
+        ? ('💧 Agua en $name', Colors.blueGrey)
+        : ('💧 El rival falló en $name', Colors.blueGrey);
   }
 
-  void _feedback(RAction a, Outcome o) {
+  void _feedback(bool byMe, Outcome o) {
     String snd = 'tick';
     var heavy = false;
-    if (a.kind == kScan) {
-      snd = 'beep';
-    } else if (a.kind == kWave) {
-      snd = 'round_start';
-    } else {
-      for (final s in o.shots) {
-        if (s.modDown && s.modKind >= 0 && s.modKind < kRealKinds) {
-          snd = 'chess_evaporate';
-          heavy = true;
-        } else if (s.result == kMine) {
-          snd = 'alarm';
-          heavy = true;
-        } else if (s.result == kBeacon) {
-          snd = 'bonus';
-        } else if (s.result == kShield && snd == 'tick') {
-          snd = 'sword_clash';
-        } else if (s.result == kHit && (snd == 'tick' || snd == 'sword_clash')) {
-          snd = 'capture';
-          heavy = true;
-        }
-      }
-      if (a.kind == kMissile && snd == 'tick') snd = 'chess_clash';
+    if (o.res == kShield) {
+      snd = 'sword_clash';
+    } else if (o.sunk >= 0) {
+      snd = 'chess_evaporate';
+      heavy = true;
+    } else if (o.res == kDecoy) {
+      snd = byMe ? 'capture' : 'bonus';
+      heavy = byMe;
+    } else if (o.res == kHit) {
+      snd = 'capture';
+      heavy = true;
     }
     Sfx.play(snd);
     if (heavy) {
@@ -531,34 +473,26 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
   }
 
   // ------------------------------------------------------------------
-  // Mi acción
+  // Mi disparo
   // ------------------------------------------------------------------
-
-  RAction? _buildAction() {
-    if (sel < 0) return null;
-    if (tool == kWave) return RAction(kWave, wvert == 0 ? sel ~/ kN : sel % kN, wvert);
-    if (tool == kFire && !view.canFire(sel)) return null;
-    return RAction(tool, sel);
-  }
 
   Future<void> _commit() async {
     if (busy || !myTurn) return;
-    final a = _buildAction();
-    if (a == null || ammo.left(a.kind) <= 0) return;
+    if (sel < 0 || !view.canFire(sel)) return;
+    final c = sel;
     setState(() => busy = true);
     HapticFeedback.mediumImpact();
     if (!widget.online) {
-      ammo.use(a.kind);
-      final o = botFleet!.apply(a, rng);
-      await _flight(false, a);
+      final o = botFleet!.fire(c);
+      await _flight(false, c);
       if (!mounted) return;
-      _applyMine(a, o);
+      _applyMine(o);
       await _impact(o);
       _clearFx();
       _afterLocal(mySeat, o);
     } else {
-      flightF = _flight(false, a);
-      final ok = await _sendOnline(a);
+      flightF = _flight(false, c);
+      final ok = await _sendOnline(c);
       if (!ok && mounted) {
         flightF = null;
         _clearFx();
@@ -567,21 +501,15 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
     }
   }
 
-  void _applyMine(RAction a, Outcome o) {
-    view.apply(a, o);
+  void _applyMine(Outcome o) {
+    view.apply(o.cell, o);
     myTurns++;
-    final cells = a.kind == kScan
-        ? boxOf(a.a)
-        : a.kind == kWave
-            ? lineOf(a.a, a.b)
-            : [for (final s in o.shots) s.cell];
-    final d = _describe(true, a, o);
-    _feedback(a, o);
+    final d = _describe(true, o);
+    _feedback(true, o);
     setState(() {
-      _flash(flashEnemy, cells);
+      _flash(flashEnemy, [o.cell, ...o.sunkCells]);
       _setBanner(d.$1, d.$2);
       sel = -1;
-      if (ammo.left(tool) <= 0) tool = kFire;
     });
   }
 
@@ -591,10 +519,8 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
       _finish(actor);
       return;
     }
-    final nt = nextTurn(actor, o, streak);
     setState(() {
-      turn = nt.$1;
-      streak = nt.$2;
+      turn = 1 - actor;
       busy = false;
       _newTurn();
     });
@@ -604,16 +530,16 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
   }
 
   void _startLocal() {
-    if (status != 'setup') return;
+    if (status != 'setup' || !mine.ready) return;
     setState(() {
       status = 'playing';
-      selMod = -1;
+      selShip = -1;
       turn = rng.nextInt(2);
       _newTurn();
       if (turn == 1) {
         _setBanner('La PC empieza…', Colors.blueGrey);
       } else {
-        _setBanner('¡Empiezas tú! Elige una casilla.', Colors.indigo);
+        _setBanner('¡Empiezas tú! Toca una casilla enemiga.', Colors.indigo);
       }
     });
     if (turn == 1) {
@@ -623,18 +549,17 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
 
   void _botMove() {
     if (!mounted || status != 'playing' || turn != 1 || widget.online) return;
-    final a = brain!.think(botView!, botAmmo!);
-    botAmmo!.use(a.kind);
+    final c = brain!.think(botView!);
     final pre = mine.copy();
-    final o = mine.apply(a, rng);
+    final o = mine.fire(c);
     final post = mine.copy();
-    botView!.apply(a, o);
-    brain!.observe(a, o, botView!);
-    _enqueue(() => _incomingJob(a, o, pre, post, () async => _afterLocal(1, o)));
+    botView!.apply(c, o);
+    brain!.observe(c, o, botView!);
+    _enqueue(() => _incomingJob(o, pre, post, () async => _afterLocal(1, o)));
   }
 
   // ------------------------------------------------------------------
-  // Animaciones (misil que sale / misil que llega)
+  // Animaciones (misil que sale de mi cañón / misil que llega del suyo)
   // ------------------------------------------------------------------
 
   void _enqueue(Future<void> Function() job) {
@@ -644,12 +569,9 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
     }).catchError((Object _) {});
   }
 
-  Future<void> _flight(bool incoming, RAction a) async {
+  Future<void> _flight(bool incoming, int cell) async {
     if (!mounted) return;
-    setState(() {
-      fx = FxInfo(incoming, a);
-      fxActive = true;
-    });
+    setState(() => fx = FxInfo(incoming, cell));
     flightCtl.forward(from: 0);
     pulseCtl.repeat();
     await Future<void>.delayed(const Duration(milliseconds: _kFlightMs));
@@ -667,8 +589,6 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
     if (!mounted) return;
     setState(() {
       fx = null;
-      fxActive = false;
-      showMine = false;
       shownFleet = null;
     });
     flightCtl.reset();
@@ -676,29 +596,23 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
     pulseCtl.stop();
   }
 
-  /// El rival me ataca: muestro MI flota, el misil llega desde arriba y luego el impacto.
-  Future<void> _incomingJob(RAction a, Outcome o, Fleet pre, Fleet post,
-      Future<void> Function() after) async {
+  /// El rival me dispara: su misil sale de su cañón (arriba) hacia mi tablero.
+  Future<void> _incomingJob(
+      Outcome o, Fleet pre, Fleet post, Future<void> Function() after) async {
     if (!mounted) return;
     setState(() {
       busy = true;
-      showMine = true;
       shownFleet = pre;
       _setBanner('⚠️ ¡Misil enemigo en camino!', Colors.red.shade800);
     });
     HapticFeedback.mediumImpact();
-    await _flight(true, a);
+    await _flight(true, o.cell);
     if (!mounted) return;
-    final cells = a.kind == kScan
-        ? boxOf(a.a)
-        : a.kind == kWave
-            ? lineOf(a.a, a.b)
-            : [for (final s in o.shots) s.cell];
-    final d = _describe(false, a, o);
-    _feedback(a, o);
+    final d = _describe(false, o);
+    _feedback(false, o);
     setState(() {
       shownFleet = post;
-      _flash(flashMine, cells);
+      _flash(flashMine, [o.cell, ...o.sunkCells]);
       _setBanner(d.$1, d.$2);
     });
     await _impact(o);
@@ -708,17 +622,17 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
     await after();
   }
 
-  /// Resultado de MI ataque (en línea): espera a que termine el vuelo y muestra el impacto.
-  Future<void> _myResultJob(RAction a, Outcome o) async {
+  /// Resultado de MI disparo (en línea): espera a que termine el vuelo y muestra el impacto.
+  Future<void> _myResultJob(Outcome o) async {
     final f = flightF;
     flightF = null;
     if (f != null) {
       await f;
     } else {
-      await _flight(false, a);
+      await _flight(false, o.cell);
     }
     if (!mounted) return;
-    _applyMine(a, o);
+    _applyMine(o);
     await _impact(o);
     _clearFx();
     if (mounted) setState(() => busy = false);
@@ -728,7 +642,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
   // En línea
   // ------------------------------------------------------------------
 
-  Future<bool> _sendOnline(RAction a) async {
+  Future<bool> _sendOnline(int c) async {
     final ref = svc.roomRef(code);
     var ok = false;
     try {
@@ -742,27 +656,27 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
           return;
         }
         tx.update(ref, {
-          'act': {...a.toMap(), 'n': an + 1, 'by': mySeat},
+          'act': {'c': c, 'n': an + 1, 'by': mySeat},
         });
         ok = true;
       });
     } catch (_) {
       ok = false;
     }
-    if (ok) ammo.use(a.kind);
     return ok;
   }
 
   /// El rival me disparó: resuelvo sobre MI flota, publico el resultado ya mismo
   /// y animo la llegada del misil en mi pantalla.
   void _resolveIncoming(Map<String, dynamic> act) {
-    final a = RAction.fromMap(act);
+    final c = (act['c'] as num).toInt();
+    if (c < 0 || c >= kCells) return;
     final by = (act['by'] as num).toInt();
     final an = (act['n'] as num).toInt();
     final pre = mine.copy();
-    final o = mine.apply(a, rng);
+    final o = mine.fire(c);
     final post = mine.copy();
-    _enqueue(() => _incomingJob(a, o, pre, post, () async {
+    _enqueue(() => _incomingJob(o, pre, post, () async {
           if (mounted && myTurn) setState(_newTurn);
         }));
     _publishResult(by, an, o);
@@ -777,11 +691,10 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
         if (doc == null) return;
         final rn = ((doc['res'] as Map?)?['n'] as num? ?? 0).toInt();
         if (rn >= an) return;
-        final nt = nextTurn(by, o, (doc['streak'] as num? ?? 0).toInt());
         tx.update(ref, {
           'res': {...o.toMap(), 'n': an},
-          'turn': nt.$1,
-          'streak': nt.$2,
+          'turn': 1 - by,
+          'streak': 0,
           if (o.defeated) 'status': 'finished',
           if (o.defeated) 'winner': by,
         });
@@ -813,20 +726,18 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
     if ((st == 'playing' || st == 'finished') && res != null && rn > appliedN) {
       appliedN = rn;
       if (act != null && by == mySeat && rn == an) {
-        final aa = RAction.fromMap(Map<String, dynamic>.from(act));
         final oo = Outcome.fromMap(Map<String, dynamic>.from(res));
-        _enqueue(() => _myResultJob(aa, oo));
+        _enqueue(() => _myResultJob(oo));
       }
     }
     if (st == 'playing') {
       turn = (d['turn'] as num? ?? 0).toInt();
-      streak = (d['streak'] as num? ?? 0).toInt();
       final key = '$turn-$rn';
       if (key != lastKey) {
         lastKey = key;
         _newTurn();
         if (status != 'playing') {
-          _setBanner(turn == mySeat ? '¡Empiezas tú! Elige una casilla.' : 'Empieza $enemyName…',
+          _setBanner(turn == mySeat ? '¡Empiezas tú! Toca una casilla enemiga.' : 'Empieza $enemyName…',
               Colors.indigo);
         }
       }
@@ -863,8 +774,8 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
         builder: (dctx) => AlertDialog(
           title: Text(won ? '🏆 ¡Victoria!' : '💥 Derrota'),
           content: Text(won
-              ? 'Destruiste los 4 objetivos de $enemyName en $myTurns turnos.'
-              : '$enemyName destruyó tus objetivos. Te quedaban ${mine.realAlive}.'),
+              ? 'Hundiste toda la flota de $enemyName en $myTurns disparos.'
+              : '$enemyName hundió toda tu flota.'),
           actions: [
             if (!widget.online)
               TextButton(
@@ -914,45 +825,37 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
   }
 
   // ------------------------------------------------------------------
-  // Interfaz
+  // Tableros
   // ------------------------------------------------------------------
-
-  Set<int> _preview() {
-    if (sel < 0) return {};
-    switch (tool) {
-      case kScan:
-        return boxOf(sel).toSet();
-      case kMissile:
-        return plusOf(sel).toSet();
-      case kWave:
-        return lineOf(wvert == 0 ? sel ~/ kN : sel % kN, wvert).toSet();
-      default:
-        return {sel};
-    }
-  }
 
   void _tapCell(int c) {
     if (status != 'playing') return;
-    if (tool == kFire && !view.canFire(c)) return;
+    if (!view.canFire(c)) return;
     HapticFeedback.selectionClick();
     setState(() => sel = c);
   }
 
-  Widget _label(String t, double size, {bool strong = false}) => SizedBox(
-        width: size,
-        height: size,
-        child: Center(
-          child: Text(t,
-              style: TextStyle(
-                  fontSize: size * 0.4,
-                  fontWeight: strong ? FontWeight.bold : FontWeight.normal,
-                  color: strong ? Colors.cyanAccent : Colors.white54)),
+  Widget _oceanBox(double side, double radius, Color border, Widget child) => Container(
+        width: side,
+        height: side,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(radius),
+          border: Border.all(color: border, width: 2),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(radius - 2),
+          child: Stack(
+            children: [
+              Positioned.fill(child: CustomPaint(painter: OceanPainter(waveCtl))),
+              child,
+            ],
+          ),
         ),
       );
 
-  Widget _enemyCell(int c, double size, Set<int> preview) {
+  Widget _enemyCell(int c, double size) {
     final st = view.st[c];
-    Color bg;
+    Color bg = _kWaterCell;
     String icon = '';
     switch (st) {
       case 1:
@@ -968,43 +871,16 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
         icon = '🛡️';
         break;
       case 4:
-        bg = const Color(0xFF2E7D32);
-        icon = view.kindAt[c] >= 0 ? kKinds[view.kindAt[c]].icon : '✔';
+        bg = const Color(0xFF6D1B1B);
+        icon = '🔥';
         break;
-      case 5:
-        bg = const Color(0xFF6A1B9A);
-        icon = '💣';
-        break;
-      case 6:
-        bg = const Color(0xFFF9A825);
-        icon = '🎁';
-        break;
-      default:
-        bg = view.scanned.contains(c) ? const Color(0x991E5A8E) : _kWaterCell;
-        if (view.targets.contains(c)) icon = '🎯';
     }
-    final inPrev = preview.contains(c);
     final isSel = c == sel;
-    final scanNum = view.scanAt[c];
-    Widget child;
-    if (st == 0 && scanNum >= 0 && icon.isEmpty) {
-      child = Text('$scanNum',
-          key: ValueKey('n$c$scanNum'),
-          style: TextStyle(
-              fontSize: size * 0.55,
-              fontWeight: FontWeight.bold,
-              color: Colors.cyanAccent));
-    } else {
-      child = Text(icon,
-          key: ValueKey('i$c$st$icon'),
-          style: TextStyle(
-              fontSize: st == 1 ? size * 0.4 : size * 0.58,
-              color: st == 1 ? Colors.lightBlueAccent : null));
-    }
+    final fl = flashEnemy.contains(c);
     return GestureDetector(
       onTap: () => _tapCell(c),
       child: AnimatedScale(
-        scale: flashEnemy.contains(c) ? 1.2 : 1.0,
+        scale: fl ? 1.2 : 1.0,
         duration: const Duration(milliseconds: 220),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 260),
@@ -1013,105 +889,61 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
           margin: const EdgeInsets.all(1),
           decoration: BoxDecoration(
             color: bg,
-            borderRadius: BorderRadius.circular(5),
+            borderRadius: BorderRadius.circular(4),
             border: Border.all(
-              color: isSel
-                  ? Colors.amber
-                  : inPrev
-                      ? Colors.amber.withOpacity(0.7)
-                      : Colors.white12,
-              width: isSel ? 3 : inPrev ? 2 : 0.5,
+              color: isSel ? Colors.amber : Colors.white12,
+              width: isSel ? 2.5 : 0.5,
             ),
-            boxShadow: flashEnemy.contains(c)
-                ? [const BoxShadow(color: Colors.white54, blurRadius: 10)]
-                : null,
+            boxShadow: fl ? [const BoxShadow(color: Colors.white54, blurRadius: 8)] : null,
           ),
           alignment: Alignment.center,
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 300),
-            transitionBuilder: (w, anim) => ScaleTransition(scale: anim, child: w),
-            child: child,
-          ),
+          child: Text(icon,
+              style: TextStyle(
+                  fontSize: st == 1 ? size * 0.4 : size * 0.52,
+                  color: st == 1 ? Colors.lightBlueAccent : null)),
         ),
       ),
     );
   }
 
-  Widget _oceanBox(double side, double radius, Widget child) => ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
-        child: SizedBox(
-          width: side,
-          height: side,
-          child: Stack(
-            children: [
-              Positioned.fill(child: CustomPaint(painter: OceanPainter(waveCtl))),
-              child,
-            ],
-          ),
-        ),
-      );
-
   Widget _enemyGrid(double side) {
-    final cell = side / (kN + 1);
-    final preview = _preview();
     return _oceanBox(
       side,
       10,
+      Colors.redAccent,
       Column(
         children: [
-          Row(children: [
-            SizedBox(width: cell, height: cell),
-            for (var c = 0; c < kN; c++)
-              view.colCount[c] >= 0
-                  ? _label('${view.colCount[c]}', cell, strong: true)
-                  : _label('ABCDEFGH'[c], cell),
-          ]),
           for (var r = 0; r < kN; r++)
             Row(children: [
-              view.rowCount[r] >= 0
-                  ? _label('${view.rowCount[r]}', cell, strong: true)
-                  : _label('${r + 1}', cell),
-              for (var c = 0; c < kN; c++) _enemyCell(r * kN + c, cell, preview),
+              for (var c = 0; c < kN; c++) _enemyCell(r * kN + c, (side - 4) / kN),
             ]),
         ],
       ),
     );
   }
 
-  Widget _fleetGrid(double side, [Fleet? fleet, bool edit = false]) {
-    final f = fleet ?? mine;
-    final cell = side / kN;
-    return _oceanBox(
-      side,
-      8,
-      Column(
-        children: [
-          for (var r = 0; r < kN; r++)
-            Row(children: [
-              for (var c = 0; c < kN; c++) _fleetCell(r * kN + c, cell, f, edit),
-            ]),
-        ],
-      ),
-    );
-  }
-
-  Widget _fleetCell(int c, double size, Fleet f, bool edit) {
-    final m = f.cellMod[c];
+  Widget _myCell(int c, double size, Fleet f, bool edit) {
+    final s = f.cellShip[c];
     final shot = f.shot[c];
     Color bg = _kWaterCell;
     String icon = '';
-    if (m >= 0) {
-      final k = f.modKind[m];
-      bg = shot ? const Color(0xFF5D4037) : const Color(0xFF455A64);
-      icon = shot ? '💥' : kKinds[k].icon;
-      if (!shot && kKinds[k].hp > 1 && f.hp[c] < kKinds[k].hp) {
+    if (s >= 0) {
+      bg = shot ? const Color(0xFF5D4037) : const Color(0xFF607D8B);
+      if (shot) {
+        icon = '💥';
+      } else if (f.shield[s]) {
         bg = const Color(0xFF00838F);
+        if (f.shipCells[s].first == c) icon = '🛡️';
       }
+    } else if (f.decoys.contains(c)) {
+      icon = '🎭';
+      if (shot) bg = const Color(0xFF3E2723);
     } else if (shot) {
       bg = const Color(0xFF0B1B33);
       icon = '•';
     }
-    final picked = edit && m >= 0 && m == selMod;
+    final picked = edit && s >= 0 && s == selShip;
+    final shielded = s >= 0 && !shot && f.shield[s];
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       width: size - 1.6,
@@ -1119,166 +951,41 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
       margin: const EdgeInsets.all(0.8),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(3),
         border: picked
             ? Border.all(color: Colors.amber, width: 2.5)
             : flashMine.contains(c)
                 ? Border.all(color: Colors.redAccent, width: 2.5)
-                : null,
+                : shielded
+                    ? Border.all(color: Colors.cyanAccent, width: 1.5)
+                    : Border.all(color: Colors.white12, width: 0.5),
       ),
       alignment: Alignment.center,
-      child: Text(icon, style: TextStyle(fontSize: size * 0.55)),
+      child: Text(icon, style: TextStyle(fontSize: size * 0.5)),
     );
   }
 
-  // ------------------------------------------------------------------
-  // Ubicar la flota (arrastrar / tocar)
-  // ------------------------------------------------------------------
-
-  int _cellAt(Offset p, double side) {
-    final cell = side / kN;
-    final c = (p.dx / cell).floor().clamp(0, kN - 1).toInt();
-    final r = (p.dy / cell).floor().clamp(0, kN - 1).toInt();
-    return r * kN + c;
-  }
-
-  void _downEdit(PointerDownEvent e, double side) {
-    final c = _cellAt(e.localPosition, side);
-    final m = mine.cellMod[c];
-    setState(() {
-      lockScroll = true;
-      movedDrag = false;
-      lastDragCell = c;
-      if (m >= 0) {
-        dragMod = m;
-        selMod = m;
-        final o = mine.originOf(m);
-        grabR = c ~/ kN - o.$1;
-        grabC = c % kN - o.$2;
-        setupMsg = 'Arrástralo o usa «Girar». Toca otra casilla para moverlo ahí.';
-        HapticFeedback.selectionClick();
-      } else {
-        dragMod = -1;
-      }
-    });
-  }
-
-  void _moveEdit(PointerMoveEvent e, double side) {
-    if (dragMod < 0) return;
-    final c = _cellAt(e.localPosition, side);
-    if (c == lastDragCell) return;
-    lastDragCell = c;
-    final ok = mine.move(dragMod, c ~/ kN - grabR, c % kN - grabC);
-    if (ok) movedDrag = true;
-    setState(() {});
-  }
-
-  void _upEdit(PointerEvent e, double side) {
-    final wasDrag = dragMod >= 0;
-    final c = _cellAt(e.localPosition, side);
-    setState(() {
-      lockScroll = false;
-      dragMod = -1;
-      if (!wasDrag && !movedDrag && selMod >= 0) {
-        final d = mine.dimsOf(selMod);
-        final ok = mine.move(selMod, c ~/ kN - d.$1 ~/ 2, c % kN - d.$2 ~/ 2);
-        if (!ok) {
-          HapticFeedback.heavyImpact();
-          setupMsg = 'Ahí no cabe: choca con otro módulo.';
-        } else {
-          HapticFeedback.selectionClick();
-          setupMsg = 'Listo. Puedes seguir moviendo o girando.';
-        }
-      }
-    });
-  }
-
-  void _rotateSel() {
-    if (selMod < 0) return;
-    final ok = mine.rotate(selMod);
-    HapticFeedback.selectionClick();
-    setState(() {
-      setupMsg = ok ? 'Girado.' : 'No hay espacio para girarlo ahí.';
-    });
-  }
-
-  Widget _placement(double side) {
-    return Column(
-      children: [
-        Text(setupMsg,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 13, color: Colors.black54)),
-        const SizedBox(height: 8),
-        Center(
-          child: Listener(
-            onPointerDown: (e) => _downEdit(e, side),
-            onPointerMove: (e) => _moveEdit(e, side),
-            onPointerUp: (e) => _upEdit(e, side),
-            onPointerCancel: (e) => setState(() {
-              lockScroll = false;
-              dragMod = -1;
-            }),
-            child: _fleetGrid(side, mine, true),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          alignment: WrapAlignment.center,
-          spacing: 10,
-          children: [
-            OutlinedButton.icon(
-              onPressed: selMod >= 0 ? _rotateSel : null,
-              icon: const Icon(Icons.rotate_right),
-              label: const Text('Girar'),
-            ),
-            OutlinedButton.icon(
-              onPressed: () => setState(() {
-                mine = Fleet.random(rng);
-                selMod = -1;
-                setupMsg = 'Flota barajada. Ajústala como quieras.';
-              }),
-              icon: const Icon(Icons.shuffle),
-              label: const Text('Barajar'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        const Text('💠 Núcleo  🗼 Torre  📡 Antena  🛡️ Blindado  💣 Mina  🎁 Baliza',
-            textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
-      ],
+  Widget _myGrid(double side, Fleet f, {bool edit = false}) {
+    return _oceanBox(
+      side,
+      10,
+      Colors.greenAccent,
+      Column(
+        children: [
+          for (var r = 0; r < kN; r++)
+            Row(children: [
+              for (var c = 0; c < kN; c++) _myCell(r * kN + c, (side - 4) / kN, f, edit),
+            ]),
+        ],
+      ),
     );
   }
 
-  Widget _setup() {
-    final side = min(MediaQuery.of(context).size.width - 48, 340.0);
-    return ListView(
-      physics: lockScroll ? const NeverScrollableScrollPhysics() : const ClampingScrollPhysics(),
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text('Ubica tu flota',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        _placement(side),
-        const SizedBox(height: 14),
-        SizedBox(
-          height: 54,
-          child: FilledButton.icon(
-            onPressed: _startLocal,
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('¡A la batalla!', style: TextStyle(fontSize: 18)),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Zona de combate: cuadrícula (enemiga, o la mía cuando me atacan) + efectos.
-  Widget _battleArea(double side) {
-    final inc = showMine;
-    final cell = inc ? side / kN : side / (kN + 1);
-    final lab = inc ? 0.0 : cell;
-    final grid = inc ? _fleetGrid(side, shownFleet ?? mine) : _enemyGrid(side);
+  /// Pantalla dividida: enemigo arriba, mis barcos abajo, y un cañón circular
+  /// en el centro de cada tablero desde donde salen los misiles.
+  Widget _battleArea(double side, double gap, double width) {
+    final cell = (side - 4) / kN;
+    final ox = (width - side) / 2;
     return AnimatedBuilder(
       animation: impactCtl,
       builder: (context, child) {
@@ -1292,23 +999,13 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
         return Transform.translate(offset: Offset(dx, dy), child: child);
       },
       child: SizedBox(
-        width: side,
-        height: side,
+        width: width,
+        height: side * 2 + gap,
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            grid,
-            if (inc)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.redAccent, width: 3),
-                    ),
-                  ),
-                ),
-              ),
+            Positioned(left: ox, top: 0, child: _enemyGrid(side)),
+            Positioned(left: ox, top: side + gap, child: _myGrid(side, shownFleet ?? mine)),
             Positioned.fill(
               child: IgnorePointer(
                 child: CustomPaint(
@@ -1318,7 +1015,9 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
                     impact: impactCtl,
                     pulse: pulseCtl,
                     cell: cell,
-                    lab: lab,
+                    side: side - 4,
+                    enemyO: Offset(ox + 2, 2),
+                    myO: Offset(ox + 2, side + gap + 2),
                   ),
                 ),
               ),
@@ -1329,40 +1028,208 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
     );
   }
 
-  void _showMine() {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Mi flota · objetivos en pie: ${mine.realAlive}/4',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              _fleetGrid(min(MediaQuery.of(context).size.width - 32, 340.0)),
-              const SizedBox(height: 8),
-              const Text('💠 Núcleo  🗼 Torre  📡 Antena  🛡️ Blindado  💣 Mina  🎁 Baliza',
-                  textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
-            ],
+  // ------------------------------------------------------------------
+  // Ubicar la flota (barcos, señuelos y escudos)
+  // ------------------------------------------------------------------
+
+  int _cellAt(Offset p, double side) {
+    final cell = (side - 4) / kN;
+    final c = ((p.dx - 2) / cell).floor().clamp(0, kN - 1).toInt();
+    final r = ((p.dy - 2) / cell).floor().clamp(0, kN - 1).toInt();
+    return r * kN + c;
+  }
+
+  String get _modeHint {
+    switch (setupMode) {
+      case 1:
+        return 'Toca casillas de agua para poner tus 3 señuelos 🎭 (el rival creerá que son barcos).';
+      case 2:
+        return 'Toca un barco para ponerle o quitarle un escudo 🛡️ (aguanta 1 disparo).';
+      default:
+        return 'Arrastra un barco, o toca uno y luego la casilla donde lo quieres.';
+    }
+  }
+
+  void _downEdit(PointerDownEvent e, double side) {
+    final c = _cellAt(e.localPosition, side);
+    downPos = e.localPosition;
+    setState(() {
+      movedDrag = false;
+      lastDragCell = c;
+      dragShip = -1;
+      lockScroll = setupMode == 0;
+      if (setupMode == 0) {
+        final s = mine.cellShip[c];
+        if (s >= 0) {
+          dragShip = s;
+          selShip = s;
+          final o = mine.originOf(s);
+          grabR = c ~/ kN - o.$1;
+          grabC = c % kN - o.$2;
+          setupMsg = 'Arrástralo o usa «Girar». Toca otra casilla para moverlo ahí.';
+          HapticFeedback.selectionClick();
+        }
+      }
+    });
+  }
+
+  void _moveEdit(PointerMoveEvent e, double side) {
+    if (setupMode != 0 || dragShip < 0) return;
+    final c = _cellAt(e.localPosition, side);
+    if (c == lastDragCell) return;
+    lastDragCell = c;
+    if (mine.moveShip(dragShip, c ~/ kN - grabR, c % kN - grabC)) movedDrag = true;
+    setState(() {});
+  }
+
+  void _upEdit(PointerEvent e, double side) {
+    final c = _cellAt(e.localPosition, side);
+    final tap = (e.localPosition - downPos).distance < 14;
+    setState(() {
+      final wasDrag = dragShip >= 0;
+      lockScroll = false;
+      dragShip = -1;
+      if (setupMode == 0) {
+        if (!wasDrag && !movedDrag && selShip >= 0 && tap) {
+          final len = kShips[selShip].len;
+          final h = mine.isHoriz(selShip);
+          final ok = mine.moveShip(
+              selShip, c ~/ kN - (h ? 0 : len ~/ 2), c % kN - (h ? len ~/ 2 : 0));
+          if (!ok) {
+            HapticFeedback.heavyImpact();
+            setupMsg = 'Ahí no cabe: choca con otro barco o con un señuelo.';
+          } else {
+            HapticFeedback.selectionClick();
+            setupMsg = 'Listo. Puedes seguir moviendo o girando.';
+          }
+        }
+      } else if (tap) {
+        final err = setupMode == 1 ? mine.toggleDecoy(c) : mine.toggleShield(c);
+        if (err != null) {
+          HapticFeedback.heavyImpact();
+        } else {
+          HapticFeedback.selectionClick();
+        }
+        setupMsg = err ?? _modeHint;
+      }
+    });
+  }
+
+  void _rotateSel() {
+    if (selShip < 0) return;
+    final ok = mine.rotateShip(selShip);
+    HapticFeedback.selectionClick();
+    setState(() => setupMsg = ok ? 'Girado.' : 'No hay espacio para girarlo ahí.');
+  }
+
+  Widget _placement(double side) {
+    return Column(
+      children: [
+        SegmentedButton<int>(
+          showSelectedIcon: false,
+          segments: [
+            const ButtonSegment(value: 0, label: Text('⚓ Barcos', style: TextStyle(fontSize: 12))),
+            ButtonSegment(
+                value: 1,
+                label: Text('🎭 Señuelos ${mine.decoyCount}/$kDecoyCount',
+                    style: const TextStyle(fontSize: 12))),
+            ButtonSegment(
+                value: 2,
+                label: Text('🛡️ Escudos ${mine.shieldCount}/$kShieldCount',
+                    style: const TextStyle(fontSize: 12))),
+          ],
+          selected: {setupMode},
+          onSelectionChanged: (s) => setState(() {
+            setupMode = s.first;
+            setupMsg = _modeHint;
+          }),
+        ),
+        const SizedBox(height: 8),
+        Text(setupMsg,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 13, color: Colors.black54)),
+        const SizedBox(height: 8),
+        Center(
+          child: Listener(
+            onPointerDown: (e) => _downEdit(e, side),
+            onPointerMove: (e) => _moveEdit(e, side),
+            onPointerUp: (e) => _upEdit(e, side),
+            onPointerCancel: (e) => setState(() {
+              lockScroll = false;
+              dragShip = -1;
+            }),
+            child: _myGrid(side, mine, edit: true),
           ),
         ),
-      ),
+        const SizedBox(height: 8),
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 10,
+          children: [
+            OutlinedButton.icon(
+              onPressed: setupMode == 0 && selShip >= 0 ? _rotateSel : null,
+              icon: const Icon(Icons.rotate_right),
+              label: const Text('Girar'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => setState(() {
+                mine = Fleet.random(rng);
+                selShip = -1;
+                setupMsg = 'Flota barajada. Ajústala como quieras.';
+              }),
+              icon: const Icon(Icons.shuffle),
+              label: const Text('Barajar'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        const Text('Barcos: 5 · 4 · 3 · 3 · 2 casillas',
+            textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+      ],
     );
   }
 
+  Widget _setup() {
+    final side = min(MediaQuery.of(context).size.width - 40, 360.0);
+    return ListView(
+      physics: lockScroll ? const NeverScrollableScrollPhysics() : const ClampingScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Text('Ubica tu flota',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        _placement(side),
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 54,
+          child: FilledButton.icon(
+            onPressed: mine.ready ? _startLocal : null,
+            icon: const Icon(Icons.play_arrow),
+            label: Text(mine.ready ? '¡A la batalla!' : 'Pon 3 señuelos y 2 escudos',
+                style: const TextStyle(fontSize: 18)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // HUD y controles
+  // ------------------------------------------------------------------
+
   Widget _hud() {
     final chips = <Widget>[];
-    for (var k = 0; k < kRealKinds; k++) {
-      final down = view.downKinds.contains(k);
+    for (var k = 0; k < kShips.length; k++) {
+      final down = view.sunkShips.contains(k);
       chips.add(Padding(
         padding: const EdgeInsets.only(right: 6),
         child: Opacity(
           opacity: down ? 0.35 : 1,
-          child: Text(kKinds[k].icon,
+          child: Text('▮' * kShips[k].len,
               style: TextStyle(
-                  fontSize: 22,
+                  fontSize: 11,
+                  color: Colors.red.shade700,
                   decoration: down ? TextDecoration.lineThrough : null)),
         ),
       ));
@@ -1378,9 +1245,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  mt
-                      ? (streak > 0 && !busy ? 'Tu turno (extra) · ${secsLeft}s' : 'Tu turno · ${secsLeft}s')
-                      : 'Turno de $enemyName…',
+                  mt ? 'Tu turno · ${secsLeft}s' : 'Turno de $enemyName…',
                   style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: mt ? Colors.indigo : Colors.black54),
@@ -1394,130 +1259,37 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
             ),
           ),
           const SizedBox(width: 12),
-          ...chips,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              const Text('Flota enemiga', style: TextStyle(fontSize: 10, color: Colors.black54)),
+              Wrap(children: chips),
+            ],
+          ),
         ],
       ),
     );
-  }
-
-  Widget _toolBtn(int k, String icon, String name) {
-    final left = ammo.left(k);
-    final enabled = left > 0;
-    final selected = tool == k;
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 3),
-        child: Material(
-          color: selected ? Colors.indigo : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: enabled
-                ? () {
-                    HapticFeedback.selectionClick();
-                    setState(() => tool = k);
-                  }
-                : null,
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: selected ? Colors.indigo : Colors.black26),
-              ),
-              child: Opacity(
-                opacity: enabled ? 1 : 0.35,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(icon, style: const TextStyle(fontSize: 22)),
-                    Text(name,
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: selected ? Colors.white : Colors.black87)),
-                    Text(k == kFire ? '∞' : '×$left',
-                        style: TextStyle(
-                            fontSize: 11,
-                            color: selected ? Colors.white70 : Colors.black54)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  String get _toolHelp {
-    switch (tool) {
-      case kScan:
-        return 'Escaneo: cuántos objetivos hay en el área de 3×3 (gasta tu turno).';
-      case kWave:
-        return 'Onda: cuántos objetivos hay en una fila o columna (gasta tu turno).';
-      case kMissile:
-        return 'Misil: impacta una cruz de 5 casillas. Solo uno por partida.';
-      default:
-        return 'Disparo: golpea 1 casilla. Sin límite.';
-    }
   }
 
   String get _fireLabel {
     if (!myTurn) return 'Esperando al rival…';
-    if (busy) return 'Procesando…';
-    if (sel < 0) return 'Toca una casilla';
-    switch (tool) {
-      case kScan:
-        return '🔍 Escanear ${cellName(sel)}';
-      case kWave:
-        return wvert == 0 ? '⚡ Onda en fila ${sel ~/ kN + 1}' : '⚡ Onda en columna ${'ABCDEFGH'[sel % kN]}';
-      case kMissile:
-        return '🚀 Misil en ${cellName(sel)}';
-      default:
-        return '🎯 Disparar a ${cellName(sel)}';
-    }
+    if (busy) return 'Disparando…';
+    if (sel < 0) return 'Toca una casilla enemiga';
+    return '🎯 Disparar a ${cellName(sel)}';
   }
 
   Widget _controls() {
-    final canGo = myTurn && !busy && _buildAction() != null;
+    final canGo = myTurn && !busy && sel >= 0 && view.canFire(sel);
     return Container(
       color: Colors.grey.shade100,
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(children: [
-            _toolBtn(kFire, '🎯', 'Disparo'),
-            _toolBtn(kScan, '🔍', 'Escaneo'),
-            _toolBtn(kWave, '⚡', 'Onda'),
-            _toolBtn(kMissile, '🚀', 'Misil'),
-          ]),
-          const SizedBox(height: 6),
-          Text(_toolHelp,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12, color: Colors.black54)),
-          if (tool == kWave)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: SegmentedButton<int>(
-                segments: const [
-                  ButtonSegment(value: 0, label: Text('Fila')),
-                  ButtonSegment(value: 1, label: Text('Columna')),
-                ],
-                selected: {wvert},
-                onSelectionChanged: (s) => setState(() => wvert = s.first),
-              ),
-            ),
-          const SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            height: 54,
-            child: FilledButton(
-              onPressed: canGo ? _commit : null,
-              child: Text(_fireLabel, style: const TextStyle(fontSize: 18)),
-            ),
-          ),
-        ],
+      child: SizedBox(
+        width: double.infinity,
+        height: 54,
+        child: FilledButton(
+          onPressed: canGo ? _commit : null,
+          child: Text(_fireLabel, style: const TextStyle(fontSize: 18)),
+        ),
       ),
     );
   }
@@ -1540,13 +1312,13 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
         const Text('Ubica tu flota (solo tú la ves):',
             textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        _placement(min(MediaQuery.of(context).size.width - 64, 320.0)),
+        _placement(min(MediaQuery.of(context).size.width - 64, 340.0)),
         const SizedBox(height: 8),
         if (isHost)
           FilledButton.icon(
-            onPressed: seats == 2 ? () => RadarOnline.start(code) : null,
+            onPressed: seats == 2 && mine.ready ? () => RadarOnline.start(code) : null,
             icon: const Icon(Icons.play_arrow),
-            label: const Text('Empezar partida'),
+            label: Text(mine.ready ? 'Empezar partida' : 'Pon 3 señuelos y 2 escudos'),
           )
         else
           const Text('Espera a que el anfitrión empiece la partida.',
@@ -1567,15 +1339,6 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
       appBar: AppBar(
         title: Text(widget.online ? 'vs $enemyName' : 'vs PC'),
         actions: [
-          if (playing)
-            IconButton(
-              tooltip: 'Mi flota',
-              onPressed: _showMine,
-              icon: Badge(
-                label: Text('${mine.realAlive}'),
-                child: const Icon(Icons.dashboard),
-              ),
-            ),
           IconButton(
             tooltip: 'Rendirme',
             onPressed: _confirmSurrender,
@@ -1592,8 +1355,10 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
                   Expanded(
                     child: LayoutBuilder(
                       builder: (context, box) {
-                        final side = min(box.maxWidth - 16, box.maxHeight - 8);
-                        return Center(child: _battleArea(max(side, 120.0)));
+                        const gap = 10.0;
+                        final side = max(
+                            100.0, min(box.maxWidth - 16, (box.maxHeight - gap - 4) / 2));
+                        return Center(child: _battleArea(side, gap, box.maxWidth));
                       },
                     ),
                   ),
@@ -1608,7 +1373,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 16,
+                              fontSize: 15,
                               fontWeight: FontWeight.bold)),
                     ),
                   ),

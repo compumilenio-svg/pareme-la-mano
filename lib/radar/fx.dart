@@ -2,22 +2,14 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'engine.dart';
 
-/// Datos de una animación de ataque (misil que sale / misil que llega).
+/// Datos de una animación de disparo (mío hacia arriba / del rival hacia abajo).
 class FxInfo {
   final bool incoming;
-  final RAction action;
+  final int cell; // casilla que recibe el disparo
   Outcome? outcome;
-  FxInfo(this.incoming, this.action, [this.outcome]);
+  FxInfo(this.incoming, this.cell, [this.outcome]);
 
-  bool get heavy {
-    final o = outcome;
-    if (o == null) return false;
-    for (final s in o.shots) {
-      if (s.result == kMine) return true;
-      if (s.modDown && s.modKind >= 0 && s.modKind < kRealKinds) return true;
-    }
-    return false;
-  }
+  bool get heavy => (outcome?.sunk ?? -1) >= 0;
 }
 
 /// Fondo de océano: degradado y olas suaves que se mueven.
@@ -58,16 +50,17 @@ class OceanPainter extends CustomPainter {
   bool shouldRepaint(covariant OceanPainter old) => false;
 }
 
-/// Capa de efectos encima de la cuadrícula: misil con estela luminosa en arco,
-/// mira de blanco, y el impacto (explosión, escudo, agua, trampa, baliza,
-/// radar y onda).
+/// Capa de efectos sobre los dos tableros: cañones circulares en el centro de
+/// cada tablero, misil con estela en arco, mira, e impactos.
 class FxPainter extends CustomPainter {
   final FxInfo? fx;
   final Animation<double> flight;
   final Animation<double> impact;
   final Animation<double> pulse;
   final double cell;
-  final double lab; // desplazamiento de las etiquetas (0 si no hay)
+  final double side;
+  final Offset enemyO; // esquina superior izquierda del tablero enemigo
+  final Offset myO; // esquina superior izquierda de mi tablero
 
   FxPainter({
     required this.fx,
@@ -75,45 +68,19 @@ class FxPainter extends CustomPainter {
     required this.impact,
     required this.pulse,
     required this.cell,
-    required this.lab,
+    required this.side,
+    required this.enemyO,
+    required this.myO,
   }) : super(repaint: Listenable.merge([flight, impact, pulse]));
 
-  Offset _pt(int c) =>
-      Offset(lab + (c % kN + 0.5) * cell, lab + (c ~/ kN + 0.5) * cell);
+  Offset _centerOf(Offset o) => o + Offset(side / 2, side / 2);
+  Offset _pt(Offset o, int c) =>
+      o + Offset((c % kN + 0.5) * cell, (c ~/ kN + 0.5) * cell);
 
   Offset _bez(Offset a, Offset c, Offset b, double t) {
     final u = 1 - t;
     return Offset(u * u * a.dx + 2 * u * t * c.dx + t * t * b.dx,
         u * u * a.dy + 2 * u * t * c.dy + t * t * b.dy);
-  }
-
-  List<Offset> _targets(RAction a) {
-    switch (a.kind) {
-      case kScan:
-        return [_pt(a.a)];
-      case kWave:
-        final side = lab + kN * cell;
-        final mid = lab + (a.a + 0.5) * cell;
-        return [a.b == 0 ? Offset(side / 2, mid) : Offset(mid, side / 2)];
-      case kMissile:
-        return [for (final c in plusOf(a.a)) _pt(c)];
-      default:
-        return [_pt(a.a)];
-    }
-  }
-
-  Color _color(FxInfo f) {
-    if (f.incoming) return const Color(0xFFFF5252);
-    switch (f.action.kind) {
-      case kScan:
-        return const Color(0xFF69F0AE);
-      case kWave:
-        return const Color(0xFFFFEE58);
-      case kMissile:
-        return const Color(0xFFFFAB40);
-      default:
-        return const Color(0xFF18FFFF);
-    }
   }
 
   void _glowLine(Canvas canvas, Offset a, Offset b, Color col, double w, double alpha) {
@@ -134,178 +101,177 @@ class FxPainter extends CustomPainter {
           ..strokeCap = StrokeCap.round);
   }
 
+  void _cannon(Canvas canvas, Offset c, double angle, Color ring, double glow) {
+    final r = cell * 0.34;
+    // base
+    canvas.drawCircle(
+        c,
+        r + 3,
+        Paint()
+          ..color = ring.withOpacity(0.25 + 0.5 * glow)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
+    canvas.save();
+    canvas.translate(c.dx, c.dy);
+    canvas.rotate(angle);
+    // cañón (tubo)
+    final barrel = RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, -r * 0.3, r * 1.5, r * 0.6), Radius.circular(r * 0.2));
+    canvas.drawRRect(barrel, Paint()..color = const Color(0xFF263238));
+    canvas.drawRRect(
+        barrel,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = ring);
+    canvas.restore();
+    // torreta circular
+    canvas.drawCircle(c, r, Paint()..color = const Color(0xFF37474F));
+    canvas.drawCircle(
+        c,
+        r,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = ring);
+    canvas.drawCircle(c, r * 0.35, Paint()..color = ring.withOpacity(0.9));
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     final f = fx;
-    if (f == null) return;
-    final a = f.action;
-    final col = _color(f);
-    final targets = _targets(a);
+    final myC = _centerOf(myO);
+    final enC = _centerOf(enemyO);
+    const myCol = Color(0xFF18FFFF);
+    const enCol = Color(0xFFFF5252);
+
+    if (f == null) {
+      _cannon(canvas, myC, -pi / 2, myCol, 0);
+      _cannon(canvas, enC, pi / 2, enCol, 0);
+      return;
+    }
+
     final flightT = flight.value;
     final done = flightT >= 0.999;
-    final side = size.width;
+    final S = f.incoming ? enC : myC;
+    final T = f.incoming ? _pt(myO, f.cell) : _pt(enemyO, f.cell);
+    final col = f.incoming ? enCol : myCol;
+    final d = T - S;
+    final len = d.distance == 0 ? 1.0 : d.distance;
+    final n = Offset(-d.dy / len, d.dx / len);
+    final bend = (f.incoming ? -1.0 : 1.0) * len * 0.28;
+    final C = Offset((S.dx + T.dx) / 2 + n.dx * bend, (S.dy + T.dy) / 2 + n.dy * bend);
 
-    // --- Misil en vuelo (arco con estela) ---------------------------------
-    final p = Curves.easeInQuad.transform(flightT.clamp(0.0, 1.0));
-    for (var i = 0; i < targets.length; i++) {
-      final T = targets[i];
-      final S = f.incoming
-          ? Offset(side * (0.9 - 0.04 * i), -side * 0.28)
-          : Offset(side * (0.1 + 0.04 * i), side * 1.3);
-      final d = T - S;
-      final len = d.distance == 0 ? 1.0 : d.distance;
-      final n = Offset(-d.dy / len, d.dx / len);
-      final bend = (f.incoming ? -1.0 : 1.0) * len * 0.32;
-      final C = Offset((S.dx + T.dx) / 2 + n.dx * bend, (S.dy + T.dy) / 2 + n.dy * bend);
-
-      if (!done) {
-        const seg = 22;
-        final t0 = max(0.0, p - 0.4);
-        var prev = _bez(S, C, T, t0);
-        for (var k = 1; k <= seg; k++) {
-          final t = t0 + (p - t0) * k / seg;
-          final cur = _bez(S, C, T, t);
-          final fade = k / seg;
-          _glowLine(canvas, prev, cur, col, 1.2 + 3.2 * fade, fade * 0.95);
-          prev = cur;
-        }
-        final head = _bez(S, C, T, p);
-        canvas.drawCircle(
-            head,
-            cell * 0.42,
-            Paint()
-              ..color = col.withOpacity(0.5)
-              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
-        canvas.drawCircle(head, cell * 0.17, Paint()..color = Colors.white);
-        canvas.drawCircle(head, cell * 0.1, Paint()..color = col);
-      }
+    // cañones: el que dispara apunta al blanco y destella al salir
+    final aim = (C - S).direction;
+    final muzzle = (1 - (flightT * 5)).clamp(0.0, 1.0).toDouble();
+    if (f.incoming) {
+      _cannon(canvas, myC, -pi / 2, myCol, 0);
+      _cannon(canvas, enC, aim, enCol, muzzle);
+    } else {
+      _cannon(canvas, enC, pi / 2, enCol, 0);
+      _cannon(canvas, myC, aim, myCol, muzzle);
+    }
+    if (muzzle > 0) {
+      final tip = S + Offset(cos(aim), sin(aim)) * cell * 0.7;
+      canvas.drawCircle(
+          tip,
+          cell * 0.35 * muzzle,
+          Paint()
+            ..color = Colors.white.withOpacity(0.9 * muzzle)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
     }
 
-    // --- Mira de blanco mientras llega el resultado -----------------------
+    // --- misil en vuelo (arco con estela) ---
+    final p = Curves.easeInQuad.transform(flightT.clamp(0.0, 1.0));
+    if (!done) {
+      const seg = 22;
+      final t0 = max(0.0, p - 0.4);
+      var prev = _bez(S, C, T, t0);
+      for (var k = 1; k <= seg; k++) {
+        final t = t0 + (p - t0) * k / seg;
+        final cur = _bez(S, C, T, t);
+        final fade = k / seg;
+        _glowLine(canvas, prev, cur, col, 1.2 + 3.0 * fade, fade * 0.95);
+        prev = cur;
+      }
+      final head = _bez(S, C, T, p);
+      canvas.drawCircle(
+          head,
+          cell * 0.4,
+          Paint()
+            ..color = col.withOpacity(0.5)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
+      canvas.drawCircle(head, cell * 0.16, Paint()..color = Colors.white);
+      canvas.drawCircle(head, cell * 0.09, Paint()..color = col);
+    }
+
+    // --- mira de blanco mientras llega el resultado ---
     if (done && f.outcome == null) {
       final k = 0.75 + 0.25 * sin(pulse.value * 2 * pi);
-      for (final T in targets) {
-        final r = cell * 0.55 * k + cell * 0.15;
-        final pr = Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.2
-          ..color = col.withOpacity(0.95);
-        canvas.drawCircle(T, r, pr);
-        for (final dir in const [Offset(1, 0), Offset(-1, 0), Offset(0, 1), Offset(0, -1)]) {
-          canvas.drawLine(T + dir * (r - 4), T + dir * (r + 7), pr);
-        }
+      final r = cell * 0.5 * k + cell * 0.12;
+      final pr = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = col.withOpacity(0.95);
+      canvas.drawCircle(T, r, pr);
+      for (final dir in const [Offset(1, 0), Offset(-1, 0), Offset(0, 1), Offset(0, -1)]) {
+        canvas.drawLine(T + dir * (r - 3), T + dir * (r + 6), pr);
       }
     }
 
-    // --- Impacto -----------------------------------------------------------
+    // --- impacto ---
     final o = f.outcome;
     final u = impact.value;
     if (o == null || !done || u <= 0) return;
-
-    if (a.kind == kScan) {
-      final c = targets.first;
-      for (var k = 0; k < 3; k++) {
-        final uu = ((u * 1.3) - k * 0.18).clamp(0.0, 1.0);
-        if (uu <= 0) continue;
+    switch (o.res) {
+      case kHit:
+      case kDecoy:
+        _boom(canvas, T, u, const Color(0xFFFF6D00), o.sunk >= 0 ? 1.9 : 1.0);
+        if (o.sunk >= 0) {
+          for (final c in o.sunkCells) {
+            final q = _pt(f.incoming ? myO : enemyO, c);
+            _boom(canvas, q, u, const Color(0xFFFF3D00), 1.0);
+          }
+        }
+        break;
+      case kShield:
+        for (var k = 0; k < 2; k++) {
+          final uu = (u * 1.2 - k * 0.2).clamp(0.0, 1.0).toDouble();
+          if (uu <= 0) continue;
+          canvas.drawCircle(
+              T,
+              cell * (0.3 + 1.0 * uu),
+              Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 3.5 * (1 - uu) + 0.6
+                ..color = const Color(0xFF18FFFF).withOpacity((1 - uu) * 0.95));
+        }
         canvas.drawCircle(
-            c,
-            cell * (0.4 + 1.9 * uu),
+            T,
+            cell * 0.55,
             Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 3 * (1 - uu) + 0.5
-              ..color = col.withOpacity((1 - uu) * 0.9));
-      }
-      final ang = u * 2 * pi * 1.2;
-      _glowLine(canvas, c, c + Offset(cos(ang), sin(ang)) * cell * 1.9, col, 2.5, 1 - u);
-      return;
-    }
-    if (a.kind == kWave) {
-      final vertical = a.b == 1;
-      final pos = u * (lab + kN * cell);
-      final mid = lab + (a.a + 0.5) * cell;
-      final span = lab + kN * cell;
-      final fade = (1 - u).clamp(0.0, 1.0);
-      // línea fija atenuándose
-      final s0 = vertical ? Offset(mid, lab) : Offset(lab, mid);
-      final s1 = vertical ? Offset(mid, span) : Offset(span, mid);
-      _glowLine(canvas, s0, s1, col, 2.0, 0.35 + 0.4 * fade);
-      // pulso que recorre la línea
-      final h = vertical ? Offset(mid, pos) : Offset(pos, mid);
-      canvas.drawCircle(
-          h,
-          cell * 0.6,
-          Paint()
-            ..color = col.withOpacity(0.7 * fade + 0.2)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9));
-      return;
-    }
-
-    for (final s in o.shots) {
-      final c = _pt(s.cell);
-      switch (s.result) {
-        case kHit:
-          _boom(canvas, c, u, const Color(0xFFFF6D00), s.modDown ? 1.9 : 1.0);
-          break;
-        case kShield:
-          for (var k = 0; k < 2; k++) {
-            final uu = (u * 1.2 - k * 0.2).clamp(0.0, 1.0);
-            if (uu <= 0) continue;
-            canvas.drawCircle(
-                c,
-                cell * (0.3 + 1.0 * uu),
-                Paint()
-                  ..style = PaintingStyle.stroke
-                  ..strokeWidth = 3.5 * (1 - uu) + 0.6
-                  ..color = const Color(0xFF18FFFF).withOpacity((1 - uu) * 0.95));
-          }
+              ..color = const Color(0xFF00E5FF).withOpacity((1 - u) * 0.35)
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
+        break;
+      default: // agua
+        for (var k = 0; k < 2; k++) {
+          final uu = (u * 1.2 - k * 0.25).clamp(0.0, 1.0).toDouble();
+          if (uu <= 0) continue;
           canvas.drawCircle(
-              c,
-              cell * 0.55,
+              T,
+              cell * (0.15 + 0.85 * uu),
               Paint()
-                ..color = const Color(0xFF00E5FF).withOpacity((1 - u) * 0.35)
-                ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
-          break;
-        case kMine:
-          _boom(canvas, c, u, const Color(0xFFD500F9), 2.3);
-          break;
-        case kBeacon:
-          for (var k = 0; k < 8; k++) {
-            final ang = k * pi / 4 + 0.3;
-            final r = cell * (0.2 + 1.1 * u);
-            final q = c + Offset(cos(ang), sin(ang)) * r;
-            canvas.drawCircle(q, cell * 0.12 * (1 - u) + 1.2,
-                Paint()..color = const Color(0xFFFFD740).withOpacity(1 - u));
-          }
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 2.2 * (1 - uu) + 0.5
+                ..color = Colors.white.withOpacity((1 - uu) * 0.85));
+        }
+        for (var k = 0; k < 6; k++) {
+          final ang = -pi / 2 + (k - 2.5) * 0.35;
+          final r = cell * 0.9 * sin(u * pi);
+          final q = T + Offset(cos(ang) * r * 0.8, sin(ang) * r - u * cell * 0.2);
           canvas.drawCircle(
-              c,
-              cell * 0.5,
-              Paint()
-                ..color = const Color(0xFFFFD740).withOpacity((1 - u) * 0.5)
-                ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7));
-          break;
-        case kMiss:
-          for (var k = 0; k < 2; k++) {
-            final uu = (u * 1.2 - k * 0.25).clamp(0.0, 1.0);
-            if (uu <= 0) continue;
-            canvas.drawCircle(
-                c,
-                cell * (0.15 + 0.85 * uu),
-                Paint()
-                  ..style = PaintingStyle.stroke
-                  ..strokeWidth = 2.2 * (1 - uu) + 0.5
-                  ..color = Colors.white.withOpacity((1 - uu) * 0.85));
-          }
-          for (var k = 0; k < 6; k++) {
-            final ang = -pi / 2 + (k - 2.5) * 0.35;
-            final r = cell * 0.9 * sin(u * pi);
-            final q = c + Offset(cos(ang) * r * 0.8, sin(ang) * r - u * cell * 0.2);
-            canvas.drawCircle(q, cell * 0.07,
-                Paint()..color = Colors.lightBlueAccent.withOpacity(1 - u));
-          }
-          break;
-        default:
-          break;
-      }
+              q, cell * 0.07, Paint()..color = Colors.lightBlueAccent.withOpacity(1 - u));
+        }
     }
   }
 

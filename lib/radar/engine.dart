@@ -1,188 +1,72 @@
-// Asalto Radar: motor puro de Dart (sin Flutter) para poder probarlo en CI.
-//
-// Cada jugador esconde en una cuadrícula de 8x8 módulos con formas distintas:
-//  - Núcleo (cruz de 5), Torre (línea de 4), Antena (L de 3): objetivos reales.
-//  - Blindado (2x2): objetivo real con escudo (cada casilla aguanta 2 impactos).
-//  - Mina: señuelo; quien la toca pierde su siguiente turno.
-//  - Baliza: nodo especial; da turno extra y revela una casilla enemiga.
-// Gana quien destruye primero los 4 objetivos reales del rival.
-//
-// El rival NUNCA recibe la flota: cada dispositivo resuelve los disparos sobre
-// su propia flota y solo comparte el resultado (así no se puede espiar).
 import 'dart:math';
 
-const int kN = 8;
-const int kCells = kN * kN;
+// ======================================================================
+// Batalla naval (Asalto Radar): motor puro de reglas, sin Flutter.
+// Tablero 10×10, flota clásica (5, 4, 3, 3, 2), 3 señuelos y 2 escudos.
+// ======================================================================
 
-// Resultados de un disparo
-const int kAgain = 0;
+const int kN = 10;
+const int kCells = 100;
+
+// Resultado de un disparo
 const int kMiss = 1;
 const int kHit = 2;
-const int kShield = 3;
-const int kMine = 4;
-const int kBeacon = 5;
+const int kShield = 3; // el escudo bloqueó el disparo (y se destruyó)
+const int kDecoy = 4; // señuelo: el atacante lo ve como un impacto
 
-// Acciones
-const int kFire = 0;
-const int kScan = 1;
-const int kWave = 2;
-const int kMissile = 3;
+const int kDecoyCount = 3;
+const int kShieldCount = 2;
 
-class ModKind {
+class ShipKind {
   final String name;
-  final String icon;
-  final bool real;
-  final int hp; // impactos que aguanta cada casilla
-  final List<List<int>> shape; // pares [fila, columna]
-  const ModKind(this.name, this.icon, this.real, this.hp, this.shape);
+  final int len;
+  const ShipKind(this.name, this.len);
 }
 
-const List<ModKind> kKinds = [
-  ModKind('Núcleo', '💠', true, 1, [
-    [0, 1], [1, 0], [1, 1], [1, 2], [2, 1],
-  ]),
-  ModKind('Torre', '🗼', true, 1, [
-    [0, 0], [0, 1], [0, 2], [0, 3],
-  ]),
-  ModKind('Antena', '📡', true, 1, [
-    [0, 0], [1, 0], [1, 1],
-  ]),
-  ModKind('Blindado', '🛡️', true, 2, [
-    [0, 0], [0, 1], [1, 0], [1, 1],
-  ]),
-  ModKind('Mina', '💣', false, 1, [
-    [0, 0],
-  ]),
-  ModKind('Baliza', '🎁', false, 1, [
-    [0, 0],
-  ]),
+const List<ShipKind> kShips = [
+  ShipKind('Portaaviones', 5),
+  ShipKind('Acorazado', 4),
+  ShipKind('Crucero', 3),
+  ShipKind('Submarino', 3),
+  ShipKind('Destructor', 2),
 ];
 
-const int kKindMine = 4;
-const int kKindBeacon = 5;
-const int kRealKinds = 4;
+String cellName(int c) => '${'ABCDEFGHIJ'[c % kN]}${c ~/ kN + 1}';
 
-String cellName(int c) => '${'ABCDEFGH'[c % kN]}${c ~/ kN + 1}';
-
-List<int> plusOf(int c) {
+List<int> neighbors4(int c) {
   final r = c ~/ kN, k = c % kN;
-  final out = <int>[c];
-  if (r > 0) out.add(c - kN);
-  if (r < kN - 1) out.add(c + kN);
-  if (k > 0) out.add(c - 1);
-  if (k < kN - 1) out.add(c + 1);
-  return out;
-}
-
-List<int> boxOf(int c) {
-  final r = c ~/ kN, k = c % kN;
-  final out = <int>[];
-  for (var dr = -1; dr <= 1; dr++) {
-    for (var dc = -1; dc <= 1; dc++) {
-      final rr = r + dr, cc = k + dc;
-      if (rr >= 0 && rr < kN && cc >= 0 && cc < kN) out.add(rr * kN + cc);
-    }
-  }
-  return out;
-}
-
-List<int> lineOf(int idx, int vertical) {
-  // vertical 0 = fila idx, 1 = columna idx
   return [
-    for (var i = 0; i < kN; i++) vertical == 0 ? idx * kN + i : i * kN + idx,
+    if (r > 0) c - kN,
+    if (r < kN - 1) c + kN,
+    if (k > 0) c - 1,
+    if (k < kN - 1) c + 1,
   ];
 }
 
-// ----------------------------------------------------------------------
-// Acción y resultado (se serializan para Firestore)
-// ----------------------------------------------------------------------
-
-class RAction {
-  final int kind;
-  final int a; // casilla (disparo, escaneo, misil) o número de línea (onda)
-  final int b; // onda: 0 fila, 1 columna
-  const RAction(this.kind, this.a, [this.b = 0]);
-
-  Map<String, dynamic> toMap() => {'k': kind, 'a': a, 'b': b};
-  factory RAction.fromMap(Map m) => RAction(
-      (m['k'] as num).toInt(), (m['a'] as num).toInt(), (m['b'] as num? ?? 0).toInt());
-}
-
-class ShotOut {
+/// Resultado de un disparo (viaja por Firestore entre los dos jugadores).
+class Outcome {
   final int cell;
-  final int result;
-  final int modKind; // tipo de módulo golpeado (-1 si agua)
-  final bool modDown; // el módulo quedó completamente destruido
-  final List<int> modCells; // casillas del módulo caído
-  const ShotOut(this.cell, this.result,
-      {this.modKind = -1, this.modDown = false, this.modCells = const []});
+  final int res;
+  final int sunk; // índice del barco hundido (-1 si ninguno)
+  final List<int> sunkCells;
+  final bool defeated;
+  const Outcome(this.cell, this.res, this.sunk, this.sunkCells, this.defeated);
 
   Map<String, dynamic> toMap() => {
         'c': cell,
-        'r': result,
-        'mk': modKind,
-        'md': modDown ? 1 : 0,
-        'mc': modCells,
-      };
-  factory ShotOut.fromMap(Map m) => ShotOut(
-        (m['c'] as num).toInt(),
-        (m['r'] as num).toInt(),
-        modKind: (m['mk'] as num? ?? -1).toInt(),
-        modDown: ((m['md'] as num? ?? 0).toInt()) == 1,
-        modCells: [for (final x in (m['mc'] as List? ?? const [])) (x as num).toInt()],
-      );
-}
-
-class Outcome {
-  final List<ShotOut> shots;
-  final int count; // escaneo / onda
-  final int reveal; // casilla revelada por una baliza (-1 si no)
-  final bool defeated; // el defensor perdió todos sus objetivos reales
-  const Outcome(this.shots, this.count, this.reveal, this.defeated);
-
-  bool get hitMine => shots.any((s) => s.result == kMine);
-  bool get hitBeacon => shots.any((s) => s.result == kBeacon);
-
-  Map<String, dynamic> toMap() => {
-        's': [for (final s in shots) s.toMap()],
-        'n': count,
-        'rv': reveal,
+        'r': res,
+        's': sunk,
+        'sc': sunkCells,
         'df': defeated ? 1 : 0,
       };
+
   factory Outcome.fromMap(Map m) => Outcome(
-        [for (final s in (m['s'] as List? ?? const [])) ShotOut.fromMap(Map.from(s as Map))],
-        (m['n'] as num? ?? 0).toInt(),
-        (m['rv'] as num? ?? -1).toInt(),
+        (m['c'] as num).toInt(),
+        (m['r'] as num).toInt(),
+        (m['s'] as num? ?? -1).toInt(),
+        [for (final x in (m['sc'] as List? ?? const [])) (x as num).toInt()],
         ((m['df'] as num? ?? 0).toInt()) == 1,
       );
-}
-
-/// Municiones de habilidades (el disparo simple es ilimitado).
-class Ammo {
-  int scan;
-  int wave;
-  int missile;
-  Ammo({this.scan = 2, this.wave = 2, this.missile = 1});
-
-  int left(int kind) =>
-      kind == kScan ? scan : kind == kWave ? wave : kind == kMissile ? missile : 999;
-
-  void use(int kind) {
-    if (kind == kScan) scan--;
-    if (kind == kWave) wave--;
-    if (kind == kMissile) missile--;
-  }
-}
-
-/// Quién juega después de [cur] (y cuántos turnos extra le quedan).
-/// Mina: el atacante pierde su siguiente turno (el rival juega dos seguidos).
-/// Baliza: el atacante repite turno.
-(int, int) nextTurn(int cur, Outcome o, int streak) {
-  final opp = 1 - cur;
-  if (o.hitMine) return (opp, 1);
-  if (o.hitBeacon) return (cur, 0);
-  if (streak > 0) return (cur, streak - 1);
-  return (opp, 0);
 }
 
 // ----------------------------------------------------------------------
@@ -190,60 +74,50 @@ class Ammo {
 // ----------------------------------------------------------------------
 
 class Fleet {
-  final List<int> cellMod = List.filled(kCells, -1);
-  final List<int> hp = List.filled(kCells, 0);
+  final List<int> cellShip = List.filled(kCells, -1);
   final List<bool> shot = List.filled(kCells, false);
-  final List<int> modKind = [];
-  final List<List<int>> modCells = [];
+  final List<List<int>> shipCells = [];
+  final List<bool> shield = [];
+  final Set<int> decoys = {};
 
-  static List<List<int>> _rot(List<List<int>> s, int k) {
-    var cur = s;
-    for (var i = 0; i < k; i++) {
-      cur = [
-        for (final p in cur) [p[1], -p[0]],
-      ];
-    }
-    var minR = 1 << 20, minC = 1 << 20;
-    for (final p in cur) {
-      if (p[0] < minR) minR = p[0];
-      if (p[1] < minC) minC = p[1];
-    }
-    return [
-      for (final p in cur) [p[0] - minR, p[1] - minC],
-    ];
-  }
+  Fleet();
 
   static Fleet random(Random rng) {
-    for (var attempt = 0; attempt < 200; attempt++) {
+    for (var attempt = 0; attempt < 500; attempt++) {
       final f = Fleet();
       var ok = true;
-      for (var kind = 0; kind < kKinds.length && ok; kind++) {
+      for (var s = 0; s < kShips.length && ok; s++) {
+        final len = kShips[s].len;
         var placed = false;
-        for (var t = 0; t < 300 && !placed; t++) {
-          final shape = _rot(kKinds[kind].shape, rng.nextInt(4));
-          var h = 0, w = 0;
-          for (final p in shape) {
-            if (p[0] + 1 > h) h = p[0] + 1;
-            if (p[1] + 1 > w) w = p[1] + 1;
-          }
-          final r0 = rng.nextInt(kN - h + 1);
-          final c0 = rng.nextInt(kN - w + 1);
+        for (var t = 0; t < 200 && !placed; t++) {
+          final horiz = rng.nextBool();
+          final r = rng.nextInt(horiz ? kN : kN - len + 1);
+          final c = rng.nextInt(horiz ? kN - len + 1 : kN);
           final cells = [
-            for (final p in shape) (r0 + p[0]) * kN + (c0 + p[1]),
+            for (var i = 0; i < len; i++) horiz ? r * kN + c + i : (r + i) * kN + c,
           ];
-          if (cells.any((c) => f.cellMod[c] >= 0)) continue;
-          final idx = f.modKind.length;
-          f.modKind.add(kind);
-          f.modCells.add(cells);
-          for (final c in cells) {
-            f.cellMod[c] = idx;
-            f.hp[c] = kKinds[kind].hp;
+          if (cells.every((x) => f.cellShip[x] < 0)) {
+            f.shipCells.add(cells);
+            f.shield.add(false);
+            for (final x in cells) {
+              f.cellShip[x] = s;
+            }
+            placed = true;
           }
-          placed = true;
         }
         if (!placed) ok = false;
       }
-      if (ok) return f;
+      if (!ok) continue;
+      final free = [
+        for (var c = 0; c < kCells; c++)
+          if (f.cellShip[c] < 0) c,
+      ]..shuffle(rng);
+      f.decoys.addAll(free.take(kDecoyCount));
+      final idx = [for (var i = 0; i < kShips.length; i++) i]..shuffle(rng);
+      for (final i in idx.take(kShieldCount)) {
+        f.shield[i] = true;
+      }
+      return f;
     }
     throw StateError('No se pudo colocar la flota');
   }
@@ -251,361 +125,211 @@ class Fleet {
   Fleet copy() {
     final f = Fleet();
     for (var c = 0; c < kCells; c++) {
-      f.cellMod[c] = cellMod[c];
-      f.hp[c] = hp[c];
+      f.cellShip[c] = cellShip[c];
       f.shot[c] = shot[c];
     }
-    f.modKind.addAll(modKind);
-    for (final cs in modCells) {
-      f.modCells.add(List<int>.from(cs));
+    for (final cs in shipCells) {
+      f.shipCells.add(List<int>.from(cs));
     }
+    f.shield.addAll(shield);
+    f.decoys.addAll(decoys);
     return f;
   }
 
-  /// Forma del módulo [m] normalizada (esquina superior izquierda en 0,0).
-  List<List<int>> shapeOf(int m) {
-    var minR = 1 << 20, minC = 1 << 20;
-    for (final c in modCells[m]) {
-      if (c ~/ kN < minR) minR = c ~/ kN;
-      if (c % kN < minC) minC = c % kN;
-    }
-    return [
-      for (final c in modCells[m]) [c ~/ kN - minR, c % kN - minC],
+  // --- edición (antes de empezar) -------------------------------------
+
+  bool isHoriz(int s) => shipCells[s][1] - shipCells[s][0] == 1;
+
+  /// Esquina (fila, columna) del barco [s].
+  (int, int) originOf(int s) => (shipCells[s].first ~/ kN, shipCells[s].first % kN);
+
+  int get shieldCount => shield.where((x) => x).length;
+  int get decoyCount => decoys.length;
+
+  bool _put(int s, bool horiz, int r0, int c0) {
+    final len = kShips[s].len;
+    final r = r0 < 0 ? 0 : (r0 > (horiz ? kN - 1 : kN - len) ? (horiz ? kN - 1 : kN - len) : r0);
+    final c = c0 < 0 ? 0 : (c0 > (horiz ? kN - len : kN - 1) ? (horiz ? kN - len : kN - 1) : c0);
+    final cells = [
+      for (var i = 0; i < len; i++) horiz ? r * kN + c + i : (r + i) * kN + c,
     ];
-  }
-
-  bool _place(int m, List<List<int>> shape, int r0, int c0) {
-    final cells = <int>[];
-    for (final p in shape) {
-      final r = r0 + p[0], k = c0 + p[1];
-      if (r < 0 || r >= kN || k < 0 || k >= kN) return false;
-      final c = r * kN + k;
-      if (cellMod[c] >= 0 && cellMod[c] != m) return false;
-      cells.add(c);
+    for (final x in cells) {
+      if (cellShip[x] >= 0 && cellShip[x] != s) return false;
+      if (decoys.contains(x)) return false;
     }
-    for (final old in modCells[m]) {
-      cellMod[old] = -1;
-      hp[old] = 0;
+    for (final old in shipCells[s]) {
+      cellShip[old] = -1;
     }
-    modCells[m] = cells;
-    for (final c in cells) {
-      cellMod[c] = m;
-      hp[c] = kKinds[modKind[m]].hp;
+    shipCells[s] = cells;
+    for (final x in cells) {
+      cellShip[x] = s;
     }
     return true;
   }
 
-  static (int, int) _dims(List<List<int>> shape) {
-    var h = 0, w = 0;
-    for (final p in shape) {
-      if (p[0] + 1 > h) h = p[0] + 1;
-      if (p[1] + 1 > w) w = p[1] + 1;
+  /// Mueve el barco para que su esquina quede en (r0, c0). false si choca.
+  bool moveShip(int s, int r0, int c0) => _put(s, isHoriz(s), r0, c0);
+
+  /// Gira el barco 90° sobre su esquina. false si no cabe.
+  bool rotateShip(int s) {
+    final o = originOf(s);
+    return _put(s, !isHoriz(s), o.$1, o.$2);
+  }
+
+  /// Pone o quita un señuelo. Devuelve un mensaje de error o null.
+  String? toggleDecoy(int c) {
+    if (decoys.contains(c)) {
+      decoys.remove(c);
+      return null;
     }
-    return (h, w);
-  }
-
-  /// Esquina superior izquierda (fila, columna) del módulo [m].
-  (int, int) originOf(int m) {
-    var r0 = 1 << 20, c0 = 1 << 20;
-    for (final c in modCells[m]) {
-      if (c ~/ kN < r0) r0 = c ~/ kN;
-      if (c % kN < c0) c0 = c % kN;
+    if (cellShip[c] >= 0) return 'Los señuelos van en el agua, no sobre un barco.';
+    if (decoys.length >= kDecoyCount) {
+      return 'Ya pusiste los $kDecoyCount señuelos. Toca uno para quitarlo.';
     }
-    return (r0, c0);
+    decoys.add(c);
+    return null;
   }
 
-  /// Alto y ancho (en casillas) del módulo [m].
-  (int, int) dimsOf(int m) => _dims(shapeOf(m));
-
-  /// Mueve el módulo para que su esquina superior izquierda quede en (r0, c0)
-  /// (se ajusta para que quepa). false si choca con otro módulo.
-  bool move(int m, int r0, int c0) {
-    final shape = shapeOf(m);
-    final d = _dims(shape);
-    final rr = r0 < 0 ? 0 : (r0 > kN - d.$1 ? kN - d.$1 : r0);
-    final cc = c0 < 0 ? 0 : (c0 > kN - d.$2 ? kN - d.$2 : c0);
-    return _place(m, shape, rr, cc);
-  }
-
-  /// Gira el módulo 90°. false si no hay espacio.
-  bool rotate(int m) {
-    final shape = _rot(shapeOf(m), 1);
-    var r0 = 1 << 20, c0 = 1 << 20;
-    for (final c in modCells[m]) {
-      if (c ~/ kN < r0) r0 = c ~/ kN;
-      if (c % kN < c0) c0 = c % kN;
+  /// Pone o quita el escudo del barco que ocupa [c]. Devuelve error o null.
+  String? toggleShield(int c) {
+    final s = cellShip[c];
+    if (s < 0) return 'Los escudos se ponen sobre un barco.';
+    if (shield[s]) {
+      shield[s] = false;
+      return null;
     }
-    final d = _dims(shape);
-    if (r0 > kN - d.$1) r0 = kN - d.$1;
-    if (c0 > kN - d.$2) c0 = kN - d.$2;
-    return _place(m, shape, r0, c0);
-  }
-
-  bool _realAlive(int c) =>
-      cellMod[c] >= 0 && kKinds[modKind[cellMod[c]]].real && !shot[c];
-
-  bool get defeated {
-    for (var c = 0; c < kCells; c++) {
-      if (_realAlive(c)) return false;
+    if (shieldCount >= kShieldCount) {
+      return 'Ya pusiste los $kShieldCount escudos. Toca uno para quitarlo.';
     }
-    return true;
+    shield[s] = true;
+    return null;
   }
 
-  /// Objetivos reales que siguen en pie (para el panel).
-  int get realAlive {
+  bool get ready => decoyCount == kDecoyCount && shieldCount == kShieldCount;
+
+  // --- combate -----------------------------------------------------------
+
+  bool shipSunk(int s) => shipCells[s].every((x) => shot[x]);
+
+  int get shipsAlive {
     var n = 0;
-    for (var m = 0; m < modKind.length; m++) {
-      if (kKinds[modKind[m]].real && modCells[m].any((c) => !shot[c])) n++;
+    for (var s = 0; s < shipCells.length; s++) {
+      if (!shipSunk(s)) n++;
     }
     return n;
   }
 
-  bool moduleAlive(int kind) {
-    for (var m = 0; m < modKind.length; m++) {
-      if (modKind[m] == kind) return modCells[m].any((c) => !shot[c]);
-    }
-    return false;
-  }
+  bool get defeated => shipsAlive == 0;
 
-  ShotOut fire(int c) {
-    if (c < 0 || c >= kCells || shot[c]) return ShotOut(c, kAgain);
-    final m = cellMod[c];
-    if (m < 0) {
-      shot[c] = true;
-      return ShotOut(c, kMiss);
-    }
-    final kind = modKind[m];
-    hp[c]--;
-    if (hp[c] > 0) return ShotOut(c, kShield, modKind: kind);
-    shot[c] = true;
-    final down = modCells[m].every((x) => shot[x]);
-    final res = kind == kKindMine
-        ? kMine
-        : kind == kKindBeacon
-            ? kBeacon
-            : kHit;
-    return ShotOut(c, res,
-        modKind: kind, modDown: down, modCells: down ? modCells[m] : const []);
-  }
-
-  int _countIn(List<int> cells) {
-    var n = 0;
-    for (final c in cells) {
-      if (_realAlive(c)) n++;
-    }
-    return n;
-  }
-
-  int _pickReveal(Random rng) {
-    final cand = <int>[];
-    for (var c = 0; c < kCells; c++) {
-      if (_realAlive(c)) cand.add(c);
-    }
-    if (cand.isEmpty) return -1;
-    return cand[rng.nextInt(cand.length)];
-  }
-
-  Outcome apply(RAction a, Random rng) {
-    final shots = <ShotOut>[];
-    var count = 0;
-    if (a.kind == kFire) {
-      shots.add(fire(a.a));
-    } else if (a.kind == kMissile) {
-      for (final c in plusOf(a.a)) {
-        shots.add(fire(c));
+  /// Recibe un disparo en [c] (la casilla no debe haber sido disparada antes).
+  Outcome fire(int c) {
+    final s = cellShip[c];
+    if (s >= 0) {
+      if (shield[s]) {
+        // El escudo aguanta este turno y se destruye.
+        shield[s] = false;
+        return Outcome(c, kShield, -1, const [], false);
       }
-    } else if (a.kind == kScan) {
-      count = _countIn(boxOf(a.a));
-    } else if (a.kind == kWave) {
-      count = _countIn(lineOf(a.a, a.b));
+      shot[c] = true;
+      if (shipSunk(s)) {
+        return Outcome(c, kHit, s, List<int>.from(shipCells[s]), defeated);
+      }
+      return Outcome(c, kHit, -1, const [], false);
     }
-    var reveal = -1;
-    if (shots.any((s) => s.result == kBeacon)) reveal = _pickReveal(rng);
-    return Outcome(shots, count, reveal, defeated);
+    shot[c] = true;
+    if (decoys.contains(c)) return Outcome(c, kDecoy, -1, const [], false);
+    return Outcome(c, kMiss, -1, const [], false);
   }
 }
 
 // ----------------------------------------------------------------------
-// Lo que sé del rival
+// Lo que yo sé del tablero rival
 // ----------------------------------------------------------------------
 
 class EnemyView {
-  /// 0 oculto, 1 agua, 2 impacto, 3 escudo agrietado, 4 módulo destruido,
-  /// 5 trampa, 6 baliza
+  /// 0 desconocido · 1 agua · 2 impacto · 3 escudo bloqueó · 4 barco hundido
   final List<int> st = List.filled(kCells, 0);
-  final List<int> kindAt = List.filled(kCells, -1);
-  final List<int> scanAt = List.filled(kCells, -1); // número en el centro del escaneo
-  final Set<int> scanned = {};
-  final Set<int> targets = {}; // casillas reveladas por balizas
-  final List<int> rowCount = List.filled(kN, -1);
-  final List<int> colCount = List.filled(kN, -1);
-  final Set<int> downKinds = {};
-  int shotsFired = 0;
-
-  void apply(RAction a, Outcome o) {
-    for (final s in o.shots) {
-      switch (s.result) {
-        case kMiss:
-          st[s.cell] = 1;
-          break;
-        case kHit:
-          st[s.cell] = 2;
-          break;
-        case kShield:
-          st[s.cell] = 3;
-          break;
-        case kMine:
-          st[s.cell] = 5;
-          break;
-        case kBeacon:
-          st[s.cell] = 6;
-          break;
-      }
-      if (s.result != kAgain) targets.remove(s.cell);
-      if (s.modDown && s.modKind >= 0 && s.modKind < kRealKinds) {
-        for (final c in s.modCells) {
-          st[c] = 4;
-          kindAt[c] = s.modKind;
-          targets.remove(c);
-        }
-        downKinds.add(s.modKind);
-      }
-    }
-    if (a.kind == kScan) {
-      scanAt[a.a] = o.count;
-      scanned.addAll(boxOf(a.a));
-    } else if (a.kind == kWave) {
-      if (a.b == 0) {
-        rowCount[a.a] = o.count;
-      } else {
-        colCount[a.a] = o.count;
-      }
-    }
-    if (o.reveal >= 0 && st[o.reveal] == 0) targets.add(o.reveal);
-    shotsFired++;
-  }
+  final Set<int> sunkShips = {};
 
   bool canFire(int c) => st[c] == 0 || st[c] == 3;
+
+  void apply(int c, Outcome o) {
+    switch (o.res) {
+      case kMiss:
+        st[c] = 1;
+        break;
+      case kHit:
+      case kDecoy:
+        st[c] = 2;
+        break;
+      case kShield:
+        st[c] = 3;
+        break;
+    }
+    if (o.sunk >= 0) {
+      sunkShips.add(o.sunk);
+      for (final x in o.sunkCells) {
+        st[x] = 4;
+      }
+    }
+  }
 }
 
 // ----------------------------------------------------------------------
-// Cerebro de la PC
+// La PC
 // ----------------------------------------------------------------------
 
 class BotBrain {
   final Random rng;
-  final int level; // 0 fácil, 1 normal
-  final Set<int> hot = {};
-  final Set<int> cold = {};
+  final int level; // 0 fácil (al azar) · 1 normal (caza y remata)
+  final List<int> queue = [];
   BotBrain(this.rng, {this.level = 1});
 
-  List<int> _free(EnemyView v) => [
-        for (var c = 0; c < kCells; c++)
-          if (v.st[c] == 0) c,
-      ];
-
-  List<int> _neighbors(int c) {
-    final r = c ~/ kN, k = c % kN;
-    return [
-      if (r > 0) c - kN,
-      if (r < kN - 1) c + kN,
-      if (k > 0) c - 1,
-      if (k < kN - 1) c + 1,
-    ];
-  }
-
-  RAction think(EnemyView v, Ammo ammo) {
-    final free = _free(v);
-    // 1) Balizas: casillas reveladas
-    for (final t in v.targets) {
-      if (v.st[t] == 0) return RAction(kFire, t);
+  int think(EnemyView v) {
+    if (level >= 1) {
+      while (queue.isNotEmpty) {
+        final c = queue.removeLast();
+        if (v.canFire(c)) return c;
+      }
     }
-    // 2) Casillas con escudo agrietado: rematar
-    final cracked = [
+    final all = [
       for (var c = 0; c < kCells; c++)
-        if (v.st[c] == 3) c,
+        if (v.canFire(c)) c,
     ];
-    if (cracked.isNotEmpty && (level > 0 || rng.nextDouble() < 0.6)) {
-      return RAction(kFire, cracked[rng.nextInt(cracked.length)]);
+    if (level >= 1) {
+      final par = [
+        for (final c in all)
+          if (((c ~/ kN) + (c % kN)) % 2 == 0 && v.st[c] == 0) c,
+      ];
+      if (par.isNotEmpty) return par[rng.nextInt(par.length)];
     }
-    // 3) Seguir un impacto
-    if (level > 0 || rng.nextDouble() < 0.6) {
-      final chase = <int>{};
-      for (var c = 0; c < kCells; c++) {
-        if (v.st[c] != 2) continue;
-        for (final n in _neighbors(c)) {
-          if (v.st[n] == 0) chase.add(n);
-        }
-      }
-      if (chase.isNotEmpty) {
-        final list = chase.toList();
-        if (level > 0 && ammo.missile > 0 && rng.nextDouble() < 0.25) {
-          return RAction(kMissile, list[rng.nextInt(list.length)]);
-        }
-        return RAction(kFire, list[rng.nextInt(list.length)]);
-      }
-    }
-    // 4) Zonas calientes
-    final hotFree = [for (final c in hot) if (v.st[c] == 0) c];
-    if (hotFree.isNotEmpty) {
-      return RAction(kFire, hotFree[rng.nextInt(hotFree.length)]);
-    }
-    // 5) Habilidades
-    if (free.length > 6) {
-      if (ammo.scan > 0 && rng.nextDouble() < (level > 0 ? 0.5 : 0.3)) {
-        final cand = [for (final c in free) if (!v.scanned.contains(c)) c];
-        final from = cand.isEmpty ? free : cand;
-        return RAction(kScan, from[rng.nextInt(from.length)]);
-      }
-      if (level > 0 && ammo.wave > 0 && rng.nextDouble() < 0.2) {
-        final vertical = rng.nextInt(2);
-        final idx = rng.nextInt(kN);
-        final known = vertical == 0 ? v.rowCount[idx] : v.colCount[idx];
-        if (known < 0) return RAction(kWave, idx, vertical);
-      }
-      if (ammo.missile > 0 && rng.nextDouble() < (level > 0 ? 0.12 : 0.06)) {
-        var best = free.first, bestN = -1;
-        for (var i = 0; i < 6; i++) {
-          final c = free[rng.nextInt(free.length)];
-          var n = 0;
-          for (final p in plusOf(c)) {
-            if (v.st[p] == 0) n++;
-          }
-          if (n > bestN) {
-            bestN = n;
-            best = c;
-          }
-        }
-        return RAction(kMissile, best);
-      }
-    }
-    // 6) Búsqueda: evita zonas frías y usa tablero de ajedrez
-    var pool = [for (final c in free) if (!cold.contains(c)) c];
-    if (pool.isEmpty) pool = free;
-    if (level > 0) {
-      final par = [for (final c in pool) if (((c ~/ kN) + (c % kN)) % 2 == 0) c];
-      if (par.isNotEmpty) pool = par;
-    }
-    if (pool.isEmpty) {
-      // casillas con escudo agrietado son las únicas que quedan
-      for (var c = 0; c < kCells; c++) {
-        if (v.st[c] == 3) return RAction(kFire, c);
-      }
-      return const RAction(kFire, 0);
-    }
-    return RAction(kFire, pool[rng.nextInt(pool.length)]);
+    return all[rng.nextInt(all.length)];
   }
 
-  /// Llamar después de aplicar el resultado a la vista.
-  void observe(RAction a, Outcome o, EnemyView v) {
-    List<int> area = const [];
-    if (a.kind == kScan) area = boxOf(a.a);
-    if (a.kind == kWave) area = lineOf(a.a, a.b);
-    if (area.isEmpty) return;
-    if (o.count == 0) {
-      cold.addAll(area);
-    } else if (o.count >= 2 || a.kind == kScan) {
-      hot.addAll([for (final c in area) if (v.st[c] == 0) c]);
+  void observe(int c, Outcome o, EnemyView v) {
+    if (level < 1) return;
+    if (o.res == kShield) {
+      queue.add(c); // ahora sí se puede
+      return;
+    }
+    if (o.res == kHit || o.res == kDecoy) {
+      if (o.sunk >= 0) {
+        queue.clear();
+        for (var x = 0; x < kCells; x++) {
+          if (v.st[x] == 2) {
+            for (final n in neighbors4(x)) {
+              if (v.canFire(n)) queue.add(n);
+            }
+          }
+        }
+        queue.shuffle(rng);
+      } else {
+        final ns = [
+          for (final n in neighbors4(c))
+            if (v.canFire(n)) n,
+        ]..shuffle(rng);
+        queue.addAll(ns);
+      }
     }
   }
 }
