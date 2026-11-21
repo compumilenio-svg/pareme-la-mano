@@ -194,12 +194,31 @@ class _RadarMenuPageState extends State<RadarMenuPage> with SingleTickerProvider
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: SizedBox(
-                height: 170,
-                width: double.infinity,
-                child: CustomPaint(painter: WarshipPainter(_anim)),
+            GestureDetector(
+              onTap: () => showDialog<void>(
+                context: context,
+                builder: (_) => Dialog(
+                  backgroundColor: Colors.black,
+                  insetPadding: const EdgeInsets.all(12),
+                  child: GestureDetector(
+                    onTap: () => Navigator.of(context).pop(),
+                    child: InteractiveViewer(
+                      child: Image.asset('assets/radar/portada.jpg', fit: BoxFit.contain),
+                    ),
+                  ),
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: SizedBox(
+                  height: 320,
+                  width: double.infinity,
+                  child: Image.asset(
+                    'assets/radar/portada.jpg',
+                    fit: BoxFit.cover,
+                    alignment: const Alignment(0, 0.15),
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 8),
