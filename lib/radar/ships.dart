@@ -1,6 +1,31 @@
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'engine.dart';
+
+/// Imágenes de los barcos (vista desde arriba, proa a la derecha); se cargan una vez.
+class ShipSprites {
+  static final Map<int, ui.Image> _img = {};
+  static bool _started = false;
+  static const _files = ['carrier', 'battleship', 'cruiser', 'sub', 'destroyer'];
+
+  static ui.Image? get(int kind) => _img[kind];
+
+  static Future<void> load() async {
+    if (_started) return;
+    _started = true;
+    for (var i = 0; i < _files.length; i++) {
+      try {
+        final data = await rootBundle.load('assets/radar/ships/${_files[i]}.png');
+        final img = await ui.decodeImageFromList(data.buffer.asUint8List());
+        _img[i] = img;
+      } catch (_) {
+        // si falla, se queda el dibujo vectorial
+      }
+    }
+  }
+}
 
 /// Un barco para dibujar (vista desde arriba).
 class ShipSpec {
@@ -161,6 +186,21 @@ class ShipsPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.04
       ..color = c(const Color(0xFF263238));
+
+    final sprite = ShipSprites.get(kind);
+    if (sprite != null) {
+      final natural = (L - 0.06) * sprite.height / sprite.width;
+      final hh = min(natural * 1.25, 1.1).toDouble();
+      final dst = Rect.fromLTWH(0.03, 0.5 - hh / 2, L - 0.06, hh);
+      canvas.drawImageRect(
+          sprite,
+          Rect.fromLTWH(0, 0, sprite.width.toDouble(), sprite.height.toDouble()),
+          dst,
+          Paint()
+            ..filterQuality = FilterQuality.high
+            ..colorFilter = ColorFilter.mode(Colors.black.withOpacity(dark), BlendMode.srcATop));
+      return;
+    }
 
     if (kind == 3) {
       // submarino

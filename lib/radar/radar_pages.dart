@@ -392,6 +392,7 @@ class _RadarMatchPageState extends State<RadarMatchPage> with TickerProviderStat
   @override
   void initState() {
     super.initState();
+    ShipSprites.load();
     if (widget.online) {
       status = 'lobby';
       enemyName = 'Rival';
