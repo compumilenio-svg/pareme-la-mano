@@ -180,10 +180,10 @@ class MenuPage extends StatelessWidget {
             ),
             Card(
               child: ListTile(
-                leading: const Text('📡', style: TextStyle(fontSize: 32)),
-                title: const Text('Asalto Radar'),
+                leading: const Text('🚢', style: TextStyle(fontSize: 32)),
+                title: const Text('Batalla naval'),
                 subtitle: const Text(
-                    'Batalla táctica con módulos ocultos, escudos, trampas y habilidades · PC o en línea 1 contra 1'),
+                    'Hunde la flota rival con cañones, señuelos y escudos · PC o en línea 1 contra 1'),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const RadarMenuPage()),
                 ),
