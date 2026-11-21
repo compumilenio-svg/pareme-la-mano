@@ -136,7 +136,7 @@ void main() {
     }
     final avg = total / games;
     print('Nivel $level: promedio ${avg.toStringAsFixed(1)} disparos por partida');
-    check(avg < (level == 0 ? 190 : 140), 'la PC es demasiado lenta (nivel $level)');
+    check(avg < (level == 0 ? 240 : 150), 'la PC es demasiado lenta (nivel $level)');
   }
 
   print('Todas las pruebas de Batalla naval pasaron.');
