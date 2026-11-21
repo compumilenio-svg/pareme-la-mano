@@ -94,7 +94,18 @@ class RadarMenuPage extends StatefulWidget {
   State<RadarMenuPage> createState() => _RadarMenuPageState();
 }
 
-class _RadarMenuPageState extends State<RadarMenuPage> {
+class _RadarMenuPageState extends State<RadarMenuPage> with SingleTickerProviderStateMixin {
+  late final AnimationController _anim =
+      AnimationController(vsync: this, duration: const Duration(seconds: 7))..repeat();
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    nameCtrl.dispose();
+    codeCtrl.dispose();
+    super.dispose();
+  }
+
   final nameCtrl = TextEditingController();
   final codeCtrl = TextEditingController();
   int level = 1;
@@ -183,7 +194,14 @@ class _RadarMenuPageState extends State<RadarMenuPage> {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            const Center(child: Text('🚢', style: TextStyle(fontSize: 56))),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: SizedBox(
+                height: 170,
+                width: double.infinity,
+                child: CustomPaint(painter: WarshipPainter(_anim)),
+              ),
+            ),
             const SizedBox(height: 8),
             const Text(
               'Batalla naval con cañones, señuelos y escudos. Hunde los 5 barcos rival antes que él.',

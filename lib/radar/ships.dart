@@ -248,3 +248,252 @@ class ShipsPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant ShipsPainter old) => true;
 }
+
+/// Ilustración del menú: portaaviones de guerra al atardecer lanzando un misil.
+class WarshipPainter extends CustomPainter {
+  final Animation<double> t;
+  WarshipPainter(this.t) : super(repaint: t);
+
+  Offset _bez(Offset a, Offset c, Offset b, double k) {
+    final u = 1 - k;
+    return Offset(u * u * a.dx + 2 * u * k * c.dx + k * k * b.dx,
+        u * u * a.dy + 2 * u * k * c.dy + k * k * b.dy);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    final u = t.value;
+    final rect = Offset.zero & size;
+
+    // cielo de atardecer
+    canvas.drawRect(
+        rect,
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF0A1633), Color(0xFF3A2A5C), Color(0xFFFF8A50)],
+            stops: [0.0, 0.5, 0.72],
+          ).createShader(rect));
+    canvas.drawCircle(
+        Offset(w * 0.18, h * 0.68),
+        h * 0.16,
+        Paint()
+          ..color = const Color(0xFFFFD180).withOpacity(0.75)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14));
+    canvas.drawCircle(Offset(w * 0.18, h * 0.68), h * 0.07, Paint()..color = const Color(0xFFFFE0B2));
+
+    // mar
+    final seaTop = h * 0.72;
+    final seaRect = Rect.fromLTWH(0, seaTop, w, h - seaTop);
+    canvas.drawRect(
+        seaRect,
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF1B4F7A), Color(0xFF06182E)],
+          ).createShader(seaRect));
+    final wl = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3;
+    for (var i = 0; i < 5; i++) {
+      final y0 = seaTop + (i + 0.6) * (h - seaTop) / 5.5;
+      wl.color = Colors.lightBlueAccent.withOpacity(0.10 + 0.03 * (i % 2));
+      final p = Path()..moveTo(0, y0);
+      for (double x = 0; x <= w; x += 6) {
+        p.lineTo(x, y0 + sin(x / w * 2 * pi * 3 + u * 2 * pi * 2 + i) * 2.2);
+      }
+      canvas.drawPath(p, wl);
+    }
+
+    // el barco
+    final bob = sin(u * 2 * pi * 3) * h * 0.006;
+    canvas.save();
+    canvas.translate(0, bob);
+    _carrier(canvas, w, h, u);
+    canvas.restore();
+
+    // agua por delante del casco (lo hunde un poco en el mar)
+    canvas.drawRect(
+        Rect.fromLTWH(w * 0.02, seaTop + h * 0.005, w * 0.96, h * 0.05),
+        Paint()..color = const Color(0xFF123F66).withOpacity(0.78));
+    // estela y espuma
+    for (var k = 0; k < 7; k++) {
+      final ph = (u * 3 + k / 7) % 1.0;
+      canvas.drawCircle(Offset(w * (0.05 - 0.04 * ph), seaTop + h * 0.02 + k * 1.3),
+          h * 0.012 * (1 - ph) + 1, Paint()..color = Colors.white.withOpacity((1 - ph) * 0.5));
+      canvas.drawCircle(Offset(w * (0.97 + 0.03 * ph), seaTop + h * 0.025),
+          h * 0.01 * (1 - ph) + 1, Paint()..color = Colors.white.withOpacity((1 - ph) * 0.5));
+    }
+
+    _missile(canvas, w, h, u);
+  }
+
+  void _carrier(Canvas canvas, double w, double h, double u) {
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..color = const Color(0xFF1C262B);
+
+    // casco
+    final hull = Path()
+      ..moveTo(w * 0.06, h * 0.60)
+      ..lineTo(w * 0.94, h * 0.60)
+      ..lineTo(w * 0.985, h * 0.645)
+      ..quadraticBezierTo(w * 0.95, h * 0.76, w * 0.88, h * 0.78)
+      ..lineTo(w * 0.12, h * 0.78)
+      ..quadraticBezierTo(w * 0.05, h * 0.70, w * 0.06, h * 0.60)
+      ..close();
+    canvas.drawPath(hull, Paint()..color = const Color(0xFF66798A));
+    canvas.save();
+    canvas.clipPath(hull);
+    canvas.drawRect(Rect.fromLTWH(0, h * 0.715, w, h * 0.03), Paint()..color = const Color(0xFF8E2A2A));
+    canvas.drawRect(Rect.fromLTWH(0, h * 0.745, w, h * 0.06), Paint()..color = Colors.black26);
+    // portillas y números de casco
+    for (var i = 0; i < 18; i++) {
+      canvas.drawCircle(Offset(w * (0.12 + i * 0.045), h * 0.655), 1.6,
+          Paint()..color = const Color(0xFF263238));
+    }
+    canvas.restore();
+    canvas.drawPath(hull, line);
+
+    // cubierta de vuelo con rampa de salto
+    final deck = Path()
+      ..moveTo(w * 0.03, h * 0.58)
+      ..lineTo(w * 0.86, h * 0.58)
+      ..lineTo(w * 0.975, h * 0.545)
+      ..lineTo(w * 0.975, h * 0.60)
+      ..lineTo(w * 0.03, h * 0.60)
+      ..close();
+    canvas.drawPath(deck, Paint()..color = const Color(0xFF8A9BA6));
+    canvas.drawPath(deck, line);
+    for (var i = 0; i < 12; i++) {
+      canvas.drawRect(Rect.fromLTWH(w * (0.07 + i * 0.07), h * 0.588, w * 0.035, h * 0.006),
+          Paint()..color = const Color(0xFFFFEE58).withOpacity(0.9));
+    }
+
+    // cazas en cubierta
+    for (final x in [0.16, 0.27, 0.38]) {
+      final cx = w * x;
+      canvas.drawOval(Rect.fromCenter(center: Offset(cx, h * 0.562), width: w * 0.075, height: h * 0.026),
+          Paint()..color = const Color(0xFF37474F));
+      canvas.drawPath(
+          Path()
+            ..moveTo(cx - w * 0.03, h * 0.562)
+            ..lineTo(cx - w * 0.042, h * 0.525)
+            ..lineTo(cx - w * 0.018, h * 0.562)
+            ..close(),
+          Paint()..color = const Color(0xFF263238));
+      canvas.drawOval(
+          Rect.fromCenter(center: Offset(cx + w * 0.015, h * 0.556), width: w * 0.02, height: h * 0.014),
+          Paint()..color = const Color(0xFF81D4FA));
+    }
+
+    // isla de mando
+    final isl = Rect.fromLTRB(w * 0.55, h * 0.37, w * 0.66, h * 0.58);
+    canvas.drawRect(isl, Paint()..color = const Color(0xFF56707F));
+    canvas.drawRect(isl, line);
+    final bridge = Rect.fromLTRB(w * 0.535, h * 0.335, w * 0.675, h * 0.385);
+    canvas.drawRect(bridge, Paint()..color = const Color(0xFF455A64));
+    canvas.drawRect(bridge, line);
+    for (var i = 0; i < 6; i++) {
+      canvas.drawRect(Rect.fromLTWH(w * (0.543 + i * 0.021), h * 0.349, w * 0.014, h * 0.014),
+          Paint()..color = const Color(0xFFFFE082));
+    }
+    // mástil y radar giratorio
+    final mx = w * 0.60;
+    canvas.drawLine(Offset(mx, h * 0.335), Offset(mx, h * 0.17), Paint()..strokeWidth = 2 ..color = const Color(0xFF263238));
+    final sweep = cos(u * 2 * pi * 5) * w * 0.045;
+    canvas.drawLine(Offset(mx - sweep, h * 0.17), Offset(mx + sweep, h * 0.17),
+        Paint()..strokeWidth = 3 ..strokeCap = StrokeCap.round ..color = const Color(0xFF90A4AE));
+    canvas.drawLine(Offset(mx, h * 0.24), Offset(mx + w * 0.05, h * 0.24), Paint()..strokeWidth = 1.5 ..color = const Color(0xFF263238));
+    canvas.drawLine(Offset(mx, h * 0.28), Offset(mx - w * 0.05, h * 0.28), Paint()..strokeWidth = 1.5 ..color = const Color(0xFF263238));
+    canvas.drawCircle(Offset(mx, h * 0.165), 2.5,
+        Paint()..color = Colors.redAccent.withOpacity(0.5 + 0.5 * sin(u * 2 * pi * 8)));
+
+    // lanzamisiles en la proa
+    canvas.drawRect(Rect.fromLTRB(w * 0.745, h * 0.545, w * 0.835, h * 0.58),
+        Paint()..color = const Color(0xFF37474F));
+    canvas.save();
+    canvas.translate(w * 0.79, h * 0.55);
+    canvas.rotate(-0.9);
+    final tube = RRect.fromRectAndRadius(
+        Rect.fromLTWH(-w * 0.015, -h * 0.022, w * 0.12, h * 0.044), const Radius.circular(3));
+    canvas.drawRRect(tube, Paint()..color = const Color(0xFF455A64));
+    canvas.drawRRect(tube, line);
+    if (u < 0.25 || u > 0.85) {
+      // misil cargado asomando
+      canvas.drawRect(Rect.fromLTWH(w * 0.02, -h * 0.012, w * 0.09, h * 0.024),
+          Paint()..color = const Color(0xFFECEFF1));
+      canvas.drawPath(
+          Path()
+            ..moveTo(w * 0.11, -h * 0.012)
+            ..lineTo(w * 0.135, 0)
+            ..lineTo(w * 0.11, h * 0.012)
+            ..close(),
+          Paint()..color = const Color(0xFFD32F2F));
+    }
+    canvas.restore();
+    // cañón antiaéreo (CIWS) en popa
+    canvas.drawCircle(Offset(w * 0.1, h * 0.565), w * 0.018, Paint()..color = const Color(0xFF546E7A));
+    canvas.drawLine(Offset(w * 0.1, h * 0.565), Offset(w * 0.1 + w * 0.035, h * 0.545),
+        Paint()..strokeWidth = 2.5 ..color = const Color(0xFF263238));
+  }
+
+  void _missile(Canvas canvas, double w, double h, double u) {
+    const a = 0.25, dur = 0.55;
+    if (u < a || u > a + dur) return;
+    final f = (u - a) / dur;
+    final ang = -0.9;
+    final o = Offset(w * 0.79 + cos(ang) * w * 0.105, h * 0.55 + h * 0.006 + sin(ang) * w * 0.105);
+    final c = Offset(o.dx + w * 0.06, o.dy - h * 0.38);
+    final e = Offset(w * 1.02, -h * 0.25);
+    final p = Curves.easeIn.transform(f);
+
+    // humo y destello del lanzamiento
+    if (f < 0.5) {
+      for (var k = 0; k < 8; k++) {
+        final ph = f / 0.5;
+        final dx = sin(k * 2.1) * w * 0.05 * ph - w * 0.02 * ph;
+        final dy = -h * 0.05 * ph * (0.5 + k / 8) - cos(k * 1.3) * h * 0.02;
+        canvas.drawCircle(Offset(o.dx + dx, o.dy + dy), h * (0.03 + 0.05 * ph),
+            Paint()..color = Colors.white.withOpacity((1 - ph) * 0.45));
+      }
+    }
+    if (f < 0.12) {
+      canvas.drawCircle(
+          o,
+          h * 0.09 * (1 - f / 0.12),
+          Paint()
+            ..color = const Color(0xFFFFF59D).withOpacity(0.9)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
+    }
+
+    // estela de humo y fuego
+    for (var k = 18; k >= 1; k--) {
+      final pk = max(0.0, p - k * 0.028);
+      final pos = _bez(o, c, e, pk);
+      final fade = 1 - k / 18;
+      canvas.drawCircle(pos, h * (0.012 + 0.022 * (1 - fade)),
+          Paint()..color = Color.lerp(const Color(0xFFFFB74D), const Color(0xFFCFD8DC), 1 - fade)!.withOpacity(fade * 0.7));
+    }
+    final head = _bez(o, c, e, p);
+    final prev = _bez(o, c, e, max(0.0, p - 0.03));
+    final dir = (head - prev);
+    final d = dir.distance == 0 ? const Offset(1, 0) : dir / dir.distance;
+    canvas.drawCircle(
+        head - d * 6,
+        h * 0.03,
+        Paint()
+          ..color = const Color(0xFFFF9800).withOpacity(0.8)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
+    canvas.drawLine(head - d * 12, head,
+        Paint()..strokeWidth = 4.5 ..strokeCap = StrokeCap.round ..color = const Color(0xFFECEFF1));
+    canvas.drawCircle(head, 3.2, Paint()..color = const Color(0xFFD32F2F));
+  }
+
+  @override
+  bool shouldRepaint(covariant WarshipPainter old) => false;
+}
