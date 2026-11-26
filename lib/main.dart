@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'bingo/bingo_pages.dart';
 import 'mente/mente_pages.dart';
 import 'radar/radar_pages.dart';
+import 'stick/stick_pages.dart';
 import 'chess/chess_pages.dart';
 import 'cuarenta/cuarenta_page.dart';
 import 'galleta/galleta_pages.dart';
@@ -186,6 +187,17 @@ class MenuPage extends StatelessWidget {
                     'Hunde la flota rival con cañones, señuelos y escudos · PC o en línea 1 contra 1'),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const RadarMenuPage()),
+                ),
+              ),
+            ),
+            Card(
+              child: ListTile(
+                leading: const Text('🥷', style: TextStyle(fontSize: 32)),
+                title: const Text('Monigote de combate'),
+                subtitle: const Text(
+                    'Pelea por oleadas con palo, saltos y esquives · jefes, armas y mejoras'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const StickMenuPage()),
                 ),
               ),
             ),
