@@ -119,7 +119,7 @@ jobs:
         run: dart run tool/stick_test.dart
       - run: flutter build apk --release
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: apk-noche-de-juegos
           path: build/app/outputs/flutter-apk/app-release.apk
