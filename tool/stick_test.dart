@@ -51,6 +51,7 @@ StickInput bot(StickWorld w) {
   }
   if (best != null && !i.crouch) {
     final d = best.x - w.p.x;
+    if (best.kind == EKind.bat && d.abs() < 60.0) i.jump = true;
     if (d.abs() > 34.0) {
       if (d > 0) {
         i.right = true;
@@ -131,6 +132,75 @@ void main() {
       low.step(1 / 60, inp);
     }
     check(low.p.hp == low.p.maxHp, 'saltar esquiva la piedra baja');
+  }
+
+  // 2b) Perros: la mordida baja se esquiva saltando; el salto alto, agachándote.
+  {
+    Enemy dog(StickWorld w, bool high) {
+      final d = Enemy(300, EKind.dog, w.p.x + 50, 100.0, 125.0, 18.0, 7.0, 0.35, 1.1, 8.0);
+      d.face = -1;
+      d.state = 1;
+      d.t = 0.05;
+      d.high = high;
+      d.cd = 0.0;
+      w.enemies.add(d);
+      return d;
+    }
+
+    double run(bool high, {bool jump = false, bool crouch = false}) {
+      final w = StickWorld(StickStats(), seed: 11);
+      w.step(0.05, StickInput());
+      w.phase = Phase.playing;
+      w.queue.clear();
+      dog(w, high);
+      for (var t = 0; t < 60; t++) {
+        final inp = StickInput();
+        if (jump && t == 0) inp.jump = true;
+        if (crouch) inp.crouch = true;
+        w.step(1 / 60, inp);
+        sane(w);
+      }
+      return w.p.hp;
+    }
+
+    final maxHp = StickStats().maxHp;
+    check(run(false) < maxHp, 'la mordida baja te alcanza de pie');
+    check(run(false, jump: true) == maxHp, 'saltar esquiva la mordida baja');
+    check(run(false, crouch: true) < maxHp, 'agacharse no esquiva la mordida baja');
+    check(run(true) < maxHp, 'el salto alto te alcanza de pie');
+    check(run(true, crouch: true) == maxHp, 'agacharse esquiva el salto alto');
+  }
+
+  // 2c) Murciélagos: el picado se esquiva agachándose.
+  {
+    double runBat(bool crouch) {
+      final w = StickWorld(StickStats(), seed: 12);
+      w.step(0.05, StickInput());
+      w.phase = Phase.playing;
+      w.queue.clear();
+      final b = Enemy(301, EKind.bat, w.p.x + 60, 100.0, 80.0, 0.0, 6.0, 0.45, 1.6, 7.0);
+      b.z = 62.0;
+      b.face = -1;
+      b.chargeDir = -1;
+      b.state = 1;
+      b.t = 0.05;
+      b.cd = 0.0;
+      w.enemies.add(b);
+      for (var t = 0; t < 70; t++) {
+        final inp = StickInput();
+        if (crouch) inp.crouch = true;
+        w.step(1 / 60, inp);
+        sane(w);
+      }
+      return w.p.hp;
+    }
+
+    final maxHp = StickStats().maxHp;
+    check(runBat(false) < maxHp, 'el picado del murciélago te alcanza de pie');
+    check(runBat(true) == maxHp, 'agacharse esquiva el picado del murciélago');
+    final w = StickWorld(StickStats(), seed: 13);
+    check(w.plan(3).contains(EKind.bat), 'oleada 3 con murciélagos');
+    check(!w.plan(2).contains(EKind.bat), 'oleada 2 sin murciélagos');
   }
 
   // 3) El combo de 3 golpes pega más que uno suelto.
