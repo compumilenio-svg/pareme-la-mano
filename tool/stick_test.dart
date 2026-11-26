@@ -5,6 +5,14 @@ void check(bool c, String m) {
   if (!c) throw 'FALLÓ: $m';
 }
 
+/// Enemigo pasivo y lejano: mantiene viva la oleada para que no borre las piedras.
+void keepAlive(StickWorld w) {
+  final e = Enemy(500, EKind.brute, kW - 14.0, 99999.0, 0.0, 1.0, 0.0, 9.0, 9.0, 13.0);
+  e.cd = 9999.0;
+  e.cd2 = 9999.0;
+  w.enemies.add(e);
+}
+
 void sane(StickWorld w) {
   check(!w.p.x.isNaN && !w.p.z.isNaN && !w.p.hp.isNaN, 'jugador sin NaN');
   check(w.p.x >= 11.9 && w.p.x <= kW - 11.9, 'jugador dentro del escenario');
@@ -88,6 +96,7 @@ void main() {
     final high = StickWorld(StickStats(), seed: 4);
     high.step(0.05, StickInput());
     high.phase = Phase.playing;
+    keepAlive(high);
     high.queue.clear();
     high.rocks.add(Rock(high.p.x + 60, 30.0, -150.0, true, 9.0));
     final hp0 = high.p.hp;
@@ -100,6 +109,7 @@ void main() {
     final high2 = StickWorld(StickStats(), seed: 4);
     high2.step(0.05, StickInput());
     high2.phase = Phase.playing;
+    keepAlive(high2);
     high2.rocks.add(Rock(high2.p.x + 60, 30.0, -150.0, true, 9.0));
     for (var t = 0; t < 90; t++) {
       high2.step(1 / 60, StickInput());
@@ -109,6 +119,7 @@ void main() {
     final low = StickWorld(StickStats(), seed: 5);
     low.step(0.05, StickInput());
     low.phase = Phase.playing;
+    keepAlive(low);
     low.rocks.add(Rock(low.p.x + 60, 4.0, -150.0, false, 9.0));
     var jumped = false;
     for (var t = 0; t < 90; t++) {
