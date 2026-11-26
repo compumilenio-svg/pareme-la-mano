@@ -342,6 +342,14 @@ class StickPainter extends CustomPainter {
   }
 
   void _drawEnemy(Canvas canvas, Enemy e) {
+    if (e.kind == EKind.dog) {
+      _drawDog(canvas, e);
+      return;
+    }
+    if (e.kind == EKind.bat) {
+      _drawBat(canvas, e);
+      return;
+    }
     Color col;
     double sc;
     double th = 3.4;
@@ -362,6 +370,14 @@ class StickPainter extends CustomPainter {
         col = const Color(0xFF9B2C2C);
         sc = 1.3;
         th = 4.6;
+        break;
+      case EKind.dog:
+        col = const Color(0xFF8D6E63);
+        sc = 0.7;
+        break;
+      case EKind.bat:
+        col = const Color(0xFF5E35B1);
+        sc = 0.5;
         break;
       case EKind.boss:
         col = const Color(0xFF8E44AD);
@@ -412,6 +428,106 @@ class StickPainter extends CustomPainter {
     // barra de vida
     final bw = 24.0 * sc;
     final by = kGround - 52 * sc - 6;
+    canvas.drawRect(Rect.fromLTWH(e.x - bw / 2, by, bw, 3), Paint()..color = Colors.black54);
+    canvas.drawRect(Rect.fromLTWH(e.x - bw / 2, by, bw * (e.hp / e.maxHp).clamp(0.0, 1.0).toDouble(), 3),
+        Paint()..color = const Color(0xFFFF5252));
+  }
+
+  void _drawBat(Canvas canvas, Enemy e) {
+    final hurt = e.hurtT > 0;
+    final op = e.dead ? (1.0 - e.deadT).clamp(0.0, 1.0).toDouble() : 1.0;
+    final body = (hurt ? Colors.white : const Color(0xFF4527A0)).withOpacity(op);
+    final wing = (hurt ? Colors.white : const Color(0xFF311B92)).withOpacity(op);
+    final fall = e.dead ? min(1.0, e.deadT * 3.0) * max(0.0, e.z) : 0.0;
+    final flap = e.state == 5 ? 0.35 : sin((w.time + e.id) * 20.0);
+    canvas.save();
+    canvas.translate(e.x, kGround - e.z + fall);
+    canvas.scale(e.face.toDouble(), 1.0);
+    if (e.state == 5) canvas.rotate(0.35);
+    if (e.dead) canvas.rotate(min(1.0, e.deadT * 3.0) * 2.5);
+    for (final side in const [-1.0, 1.0]) {
+      final wp = Path()
+        ..moveTo(side * 2, -2)
+        ..lineTo(side * 15, -9 - flap * 7)
+        ..lineTo(side * 11, -1 - flap * 3)
+        ..lineTo(side * 8, 3)
+        ..lineTo(side * 4, 1)
+        ..close();
+      canvas.drawPath(wp, Paint()..color = wing);
+    }
+    canvas.drawOval(const Rect.fromLTWH(-4, -5, 9, 11), Paint()..color = body);
+    canvas.drawCircle(const Offset(2, -7), 3.6, Paint()..color = body);
+    final ear = Path()
+      ..moveTo(0, -9)
+      ..lineTo(1, -14)
+      ..lineTo(3, -9)
+      ..close();
+    canvas.drawPath(ear, Paint()..color = body);
+    canvas.drawCircle(const Offset(3.4, -7.4), 1.2,
+        Paint()..color = const Color(0xFFFF5252).withOpacity(op));
+    canvas.restore();
+    if (e.dead) return;
+    if (e.state == 1) {
+      _text(canvas, '⬇ AGÁCHATE', Offset(e.x, kGround - e.z - 22), 9, Colors.lightBlueAccent,
+          align: TextAlign.center);
+    }
+    const bw = 16.0;
+    final by = kGround - e.z - 14.0;
+    canvas.drawRect(Rect.fromLTWH(e.x - bw / 2, by, bw, 3), Paint()..color = Colors.black54);
+    canvas.drawRect(Rect.fromLTWH(e.x - bw / 2, by, bw * (e.hp / e.maxHp).clamp(0.0, 1.0).toDouble(), 3),
+        Paint()..color = const Color(0xFFFF5252));
+  }
+
+  void _drawDog(Canvas canvas, Enemy e) {
+    final hurt = e.hurtT > 0;
+    final base = hurt ? Colors.white : const Color(0xFF8D6E63);
+    final dark = hurt ? Colors.white : const Color(0xFF5D4037);
+    final op = e.dead ? (1.0 - e.deadT).clamp(0.0, 1.0).toDouble() : 1.0;
+    final fill = Paint()..color = base.withOpacity(op);
+    final line = Paint()
+      ..color = dark.withOpacity(op)
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final run = (e.state == 0 || e.state == 5) ? sin((w.time + e.id) * 24.0) : 0.0;
+    canvas.save();
+    canvas.translate(e.x, kGround - e.z);
+    if (e.dead) canvas.rotate(-e.face * pi / 2 * min(1.0, e.deadT * 4.0) * 0.9);
+    canvas.scale(e.face.toDouble(), 1.0);
+    if (e.state == 5 && e.high) canvas.rotate(-0.5);
+    if (e.state == 1) canvas.translate(-2, 2); // se agazapa
+    // patas
+    final sw = e.state == 5 && e.high ? 5.0 : run * 6.0;
+    canvas.drawLine(const Offset(-9, -8), Offset(-9 - sw, 0), line);
+    canvas.drawLine(const Offset(-5, -8), Offset(-5 + sw, 0), line);
+    canvas.drawLine(const Offset(7, -8), Offset(7 + sw, 0), line);
+    canvas.drawLine(const Offset(11, -8), Offset(11 - sw, 0), line);
+    // cola
+    canvas.drawLine(const Offset(-12, -13), Offset(-19, -19 + run * 2.0), line);
+    // cuerpo, cabeza, hocico, oreja
+    canvas.drawOval(const Rect.fromLTWH(-13, -17, 26, 11), fill);
+    canvas.drawCircle(const Offset(15, -17), 6, fill);
+    canvas.drawRect(const Rect.fromLTWH(18, -17, 8, 4.5), fill);
+    final ear = Path()
+      ..moveTo(12, -22)
+      ..lineTo(15, -28)
+      ..lineTo(18, -22)
+      ..close();
+    canvas.drawPath(ear, Paint()..color = dark.withOpacity(op));
+    canvas.drawCircle(const Offset(17, -18), 1.3, Paint()..color = Colors.white.withOpacity(op));
+    if (e.state == 5) {
+      canvas.drawLine(const Offset(19, -12.5), const Offset(25, -12.5),
+          Paint()..color = Colors.white.withOpacity(op)..strokeWidth = 1.6);
+    }
+    canvas.restore();
+    if (e.dead) return;
+    if (e.state == 1) {
+      _text(canvas, e.high ? '⬇ AGÁCHATE' : '⬆ SALTA', Offset(e.x, kGround - 44), 9,
+          e.high ? Colors.lightBlueAccent : Colors.orangeAccent,
+          align: TextAlign.center);
+    }
+    const bw = 18.0;
+    final by = kGround - e.z - 32.0;
     canvas.drawRect(Rect.fromLTWH(e.x - bw / 2, by, bw, 3), Paint()..color = Colors.black54);
     canvas.drawRect(Rect.fromLTWH(e.x - bw / 2, by, bw * (e.hp / e.maxHp).clamp(0.0, 1.0).toDouble(), 3),
         Paint()..color = const Color(0xFFFF5252));

@@ -6,7 +6,7 @@ const double kW = 480.0;
 const double kH = 270.0;
 const double kGround = 222.0;
 
-enum EKind { grunt, runner, thrower, brute, boss }
+enum EKind { grunt, runner, thrower, brute, boss, dog, bat }
 
 enum Phase { between, playing, over }
 
@@ -113,6 +113,9 @@ class Enemy {
   bool chargeHit = false;
   bool dead = false;
   double deadT = 0.0;
+  double z = 0.0; // altura (perros que saltan)
+  double vz = 0.0;
+  double dive = 0.0; // velocidad horizontal del picado (murciélagos)
   Enemy(this.id, this.kind, this.x, this.hp, this.speed, this.reach, this.dmg, this.windup,
       this.cooldown, this.radius)
       : maxHp = hp;
@@ -255,6 +258,7 @@ class StickWorld {
     final air = pl.atkKind == 1;
     for (final e in enemies) {
       if (e.dead) continue;
+      if (e.z > pl.z + 48.0) continue; // murciélago fuera de alcance: salta para pegarle
       final dx = (e.x - pl.x) * f;
       if (dx < -8.0 || dx > w.reach + e.radius) continue;
       var dmg = w.dmg * stats.dmgMul;
@@ -266,7 +270,7 @@ class StickWorld {
       e.hp -= dmg;
       e.hurtT = 0.2;
       e.kx += f * (big ? 260.0 : 90.0);
-      if (e.kind != EKind.boss && (sweep || big)) e.stun = 0.6;
+      if (e.kind != EKind.boss && !((e.kind == EKind.dog || e.kind == EKind.bat) && e.state == 5) && (sweep || big)) e.stun = 0.6;
       if (e.state == 1 && e.kind != EKind.boss && (e.kind != EKind.brute || big)) {
         e.state = 0;
         e.t = 0.0;
@@ -305,6 +309,10 @@ class StickWorld {
         return 2;
       case EKind.runner:
         return 2;
+      case EKind.dog:
+        return 3;
+      case EKind.bat:
+        return 3;
       case EKind.thrower:
         return 4;
       case EKind.brute:
@@ -340,6 +348,14 @@ class StickWorld {
         continue;
       }
       e.hurtT = max(0.0, e.hurtT - dt);
+      if (e.kind != EKind.bat && (e.z > 0.0 || e.vz > 0.0)) {
+        e.vz -= 900.0 * dt;
+        e.z += e.vz * dt;
+        if (e.z <= 0.0) {
+          e.z = 0.0;
+          e.vz = 0.0;
+        }
+      }
       e.x += e.kx * dt;
       e.kx *= pow(0.002, dt).toDouble();
       if (e.stun > 0) {
@@ -357,6 +373,12 @@ class StickWorld {
           break;
         case EKind.boss:
           _bossAI(e, dt, dir, ad);
+          break;
+        case EKind.dog:
+          _dogAI(e, dt, dir, ad);
+          break;
+        case EKind.bat:
+          _batAI(e, dt, dir, ad);
           break;
         default:
           _meleeAI(e, dt, dir, ad);
@@ -405,6 +427,112 @@ class StickWorld {
       }
     } else if (e.state == 2) {
       e.t -= dt;
+      if (e.t <= 0) e.state = 0;
+    }
+  }
+
+  /// Perro: corre hacia ti y ataca de dos formas.
+  /// Mordida baja (e.high == false): a ras de suelo, a la pierna → SALTA.
+  /// Salto alto (e.high == true): se lanza hacia arriba → AGÁCHATE.
+  void _dogAI(Enemy e, double dt, int dir, double ad) {
+    final pl = p;
+    if (e.state == 0) {
+      e.face = dir;
+      if (ad > 78.0) {
+        e.x += dir * e.speed * dt;
+      } else if (e.cd <= 0) {
+        e.state = 1;
+        e.t = e.windup;
+        e.high = rng.nextBool();
+      } else if (ad < 40.0) {
+        e.x -= dir * e.speed * 0.5 * dt;
+      }
+    } else if (e.state == 1) {
+      e.t -= dt;
+      if (e.t <= 0) {
+        e.state = 5;
+        e.chargeHit = false;
+        e.chargeDir = e.face;
+        if (e.high) {
+          e.vz = 230.0;
+          e.z = 0.01;
+          e.t = 0.5;
+        } else {
+          e.t = 0.3;
+        }
+        events.add(StickEvent(Ev.rock, e.x, kGround - 14));
+      }
+    } else if (e.state == 5) {
+      e.x += e.chargeDir * (e.high ? 190.0 : 280.0) * dt;
+      if (!e.chargeHit && (pl.x - e.x).abs() < 14.0) {
+        final hit = e.high ? (!pl.crouching && e.z >= 8.0) : (pl.z < 14.0);
+        if (hit) {
+          e.chargeHit = true;
+          _hurtPlayer(e.dmg, e.chargeDir, melee: false);
+        }
+      }
+      e.t -= dt;
+      if (e.t <= 0) {
+        e.state = 2;
+        e.t = 0.45;
+        e.cd = e.cooldown;
+        e.z = 0.0;
+        e.vz = 0.0;
+      }
+    } else {
+      e.t -= dt;
+      if (e.t <= 0) e.state = 0;
+    }
+  }
+
+  /// Murciélago: vuela alto y cae en picado sobre ti. Tiene el picado más bajo
+  /// que tu cabeza pero más alto que tu cuerpo agachado → AGÁCHATE.
+  /// También puedes saltar y pegarle mientras vuela alto.
+  void _batAI(Enemy e, double dt, int dir, double ad) {
+    final pl = p;
+    if (e.state == 0) {
+      e.face = dir;
+      e.z = 62.0 + sin((time + e.id) * 5.0) * 5.0;
+      if (ad > 95.0) {
+        e.x += dir * e.speed * dt;
+      } else if (e.cd <= 0) {
+        e.state = 1;
+        e.t = e.windup;
+      } else if (ad < 60.0) {
+        e.x -= dir * e.speed * 0.6 * dt;
+      }
+    } else if (e.state == 1) {
+      e.face = dir;
+      e.chargeDir = dir;
+      e.t -= dt;
+      if (e.t <= 0) {
+        e.state = 5;
+        e.chargeHit = false;
+        e.t = 0.7;
+        e.dive = max(ad, 40.0) / 0.35;
+        events.add(StickEvent(Ev.rock, e.x, kGround - e.z));
+      }
+    } else if (e.state == 5) {
+      e.t -= dt;
+      final prog = (1.0 - e.t / 0.7).clamp(0.0, 1.0).toDouble();
+      e.z = 62.0 - 32.0 * sin(pi * prog);
+      e.x += e.chargeDir * e.dive * dt;
+      if (!e.chargeHit &&
+          (pl.x - e.x).abs() < 14.0 &&
+          e.z - 5.0 < pl.z + (pl.crouching ? 22.0 : 44.0) &&
+          e.z + 5.0 > pl.z) {
+        e.chargeHit = true;
+        _hurtPlayer(e.dmg, e.chargeDir, melee: false);
+      }
+      if (e.t <= 0) {
+        e.state = 2;
+        e.t = 0.4;
+        e.cd = e.cooldown;
+        e.z = 62.0;
+      }
+    } else {
+      e.t -= dt;
+      e.z = 62.0;
       if (e.t <= 0) e.state = 0;
     }
   }
@@ -521,10 +649,19 @@ class StickWorld {
         list.add(EKind.brute);
       } else if (w >= 3 && r < 0.34) {
         list.add(EKind.thrower);
-      } else if (w >= 2 && r < 0.60) {
+      } else if (w >= 2 && r < 0.48) {
+        list.add(EKind.dog);
+      } else if (w >= 2 && r < 0.70) {
         list.add(EKind.runner);
       } else {
         list.add(EKind.grunt);
+      }
+    }
+    if (w >= 3 && w % 3 == 0 && w % 5 != 0) {
+      // nivel de murciélagos: los últimos de la oleada vienen volando
+      final nb = min(6, 2 + w ~/ 3);
+      for (var i = 0; i < nb && i < list.length; i++) {
+        list[list.length - 1 - i] = EKind.bat;
       }
     }
     if (w % 5 == 0) {
@@ -556,6 +693,13 @@ class StickWorld {
         break;
       case EKind.runner:
         e = Enemy(id, k, x, 14.0 * hs, 98.0, 22.0, 6.0 * ds, 0.28, 0.7, 8.0);
+        break;
+      case EKind.dog:
+        e = Enemy(id, k, x, 10.0 * hs, 125.0, 18.0, 7.0 * ds, 0.35, 1.1, 8.0);
+        break;
+      case EKind.bat:
+        e = Enemy(id, k, x, 8.0 * hs, 80.0, 0.0, 6.0 * ds, 0.45, 1.6, 7.0);
+        e.z = 62.0;
         break;
       case EKind.thrower:
         e = Enemy(id, k, x, 18.0 * hs, 42.0, 0.0, 9.0 * ds, 0.55, 1.6, 9.0);

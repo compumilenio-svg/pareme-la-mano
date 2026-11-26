@@ -104,6 +104,8 @@ class _StickMenuPageState extends State<StickMenuPage> with SingleTickerProvider
             '⚔  Golpear con tu arma. Tres golpes seguidos hacen un combo muy fuerte. '
             'Agachado das un barrido que tumba; en el aire, un golpe más potente.\n\n'
             'Con un golpe puedes desviar las piedras que lanzan.\n'
+            'Los perros corren hacia ti: si muerden a la pierna ¡SALTA!, si se lanzan hacia arriba ¡AGÁCHATE!\n'
+            'Cada 3 oleadas llegan murciélagos: vuelan alto y caen en picado, ¡AGÁCHATE! o salta para golpearlos en el aire.\n'
             'Cuando un lanzador prepare la piedra verás si debes AGACHARTE o SALTAR.\n'
             'El jefe avisa su carga: esquívala y golpéalo cuando quede cansado.\n\n'
             'Con las monedas compras armas y mejoras en la Armería.\n\n'
