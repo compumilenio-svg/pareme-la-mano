@@ -115,6 +115,8 @@ jobs:
         run: dart run tool/mente_test.dart
       - name: Pruebas de Asalto Radar
         run: dart run tool/radar_test.dart
+      - name: Pruebas del Monigote de combate
+        run: dart run tool/stick_test.dart
       - run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
